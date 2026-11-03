@@ -1,0 +1,24 @@
+{
+  "name": "finance-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bot Telegram pencatat keuangan pribadi",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "db:init": "tsx src/db/init.ts"
+  },
+  "dependencies": {
+    "grammy": "^1.46.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
