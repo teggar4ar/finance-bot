@@ -64,4 +64,41 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
     await repo.setOpeningBalance('bank', 5_000_000);
     expect(await repo.getBalances()).toEqual({ tunai: 200_000, bank: 5_000_000 });
   });
+
+  it('menyimpan Pengeluaran dan Pemasukan lengkap dengan occurred_at (FR-030, FR-031, FR-040)', async () => {
+    const before = Date.now();
+    const id = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+    await repo.addExpenseOrIncome('bank', 'income', 5_000_000, 'gaji');
+
+    const { rows } = await pool.query<{
+      type: string;
+      account: string;
+      amount: string;
+      description: string;
+      occurred_at: Date;
+    }>('SELECT type, account, amount::text AS amount, description, occurred_at FROM transactions WHERE id = $1', [id]);
+
+    expect(rows[0]).toEqual({
+      type: 'expense',
+      account: 'tunai',
+      amount: '25000',
+      description: 'makan siang',
+      occurred_at: expect.any(Date),
+    });
+    expect(rows[0]!.occurred_at.getTime()).toBeGreaterThanOrEqual(before - 60_000);
+    expect(await repo.getBalances()).toEqual({ tunai: -25_000, bank: 5_000_000 });
+  });
+
+  it('menulis Transaksi baru membuang seluruh Riwayat undo (FR-053)', async () => {
+    await repo.setOpeningBalance('tunai', 200_000);
+    // /undo belum ada (#6); status dibatalkan disiapkan langsung di sini.
+    await pool.query("UPDATE transactions SET undone_at = now() WHERE type = 'opening'");
+
+    await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+
+    const { rows } = await pool.query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM transactions WHERE undone_at IS NOT NULL AND deleted_at IS NULL',
+    );
+    expect(rows[0]?.count).toBe('0');
+  });
 });

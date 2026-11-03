@@ -1,6 +1,6 @@
 import { formatAmount, parseAmount } from './amount';
 import type { Command } from './command';
-import type { Account, Balances, Repo } from './repo';
+import type { Account, Balances, ExpenseOrIncome, Repo } from './repo';
 import { isAccount } from './repo';
 
 /**
@@ -35,9 +35,18 @@ export const HELP = [
 export const HINT = 'Command tidak dikenal. Kirim /help untuk daftar command.';
 
 const USAGE_SALDO_AWAL = 'Format: /saldo_awal <tunai|bank> <nominal>, contoh /saldo_awal tunai 200rb';
+const USAGE_PENGELUARAN =
+  'Format: /pengeluaran <deskripsi> <nominal> [@bank|@tunai], contoh /pengeluaran makan siang 25rb';
+const USAGE_PEMASUKAN =
+  'Format: /pemasukan <deskripsi> <nominal> [@bank|@tunai], contoh /pemasukan gaji 5jt @bank';
 
 function negativeWarning(negative: readonly Account[]): string {
   return negative.length > 0 ? `Peringatan: saldo ${negative.join(' dan ')} negatif.` : '';
+}
+
+/** FR-022: peringatan bila tulisan meninggalkan saldo akun negatif. */
+function balanceWarning(account: Account, balances: Balances): string {
+  return balances[account] < 0 ? ` ${negativeWarning([account])}` : '';
 }
 
 function saldoText(balances: Balances): string {
@@ -58,8 +67,54 @@ async function setOpeningBalance(args: string, deps: Deps): Promise<string> {
 
   const id = await deps.repo.setOpeningBalance(account, amount);
   const balances = await deps.repo.getBalances();
-  const warning = balances[account] < 0 ? ` ${negativeWarning([account])}` : '';
-  return `Saldo awal ${account} ${formatAmount(amount)} dicatat. ID ${id}. Saldo ${account}: ${formatAmount(balances[account])}.${warning}`;
+  return `Saldo awal ${account} ${formatAmount(amount)} dicatat. ID ${id}. Saldo ${account}: ${formatAmount(balances[account])}.${balanceWarning(account, balances)}`;
+}
+
+interface NewTransaction {
+  account: Account;
+  amount: number;
+  description: string;
+}
+
+/**
+ * FR-033: Nominal adalah token terakhir sebelum flag Akun, sisanya deskripsi.
+ * FR-032: tanpa flag, Akun = tunai.
+ */
+function parseTransaction(args: string): NewTransaction | null {
+  const tokens = args.trim().split(/\s+/).filter(Boolean);
+
+  let account: Account = 'tunai';
+  const flag = tokens.at(-1);
+  if (flag?.startsWith('@')) {
+    const name = flag.slice(1).toLowerCase();
+    if (!isAccount(name)) return null;
+    account = name;
+    tokens.pop();
+  }
+  if (tokens.some((token) => token.startsWith('@'))) return null;
+
+  const amount = parseAmount(tokens.pop() ?? '');
+  // "Rp 25.000" terpecah dua token; sisanya jangan ikut jadi deskripsi (FR-034).
+  const description = tokens.join(' ').replace(/\s*\brp$/i, '');
+  if (amount === null || !description) return null;
+
+  return { account, amount, description };
+}
+
+async function recordTransaction(args: string, type: ExpenseOrIncome, deps: Deps): Promise<string> {
+  const transaction = parseTransaction(args);
+  if (!transaction) return type === 'expense' ? USAGE_PENGELUARAN : USAGE_PEMASUKAN;
+
+  const id = await deps.repo.addExpenseOrIncome(
+    transaction.account,
+    type,
+    transaction.amount,
+    transaction.description,
+  );
+  const balances = await deps.repo.getBalances();
+  const label = type === 'expense' ? 'Pengeluaran' : 'Pemasukan';
+  const { account, amount, description } = transaction;
+  return `${label} ${description} ${formatAmount(amount)} (${account}) tercatat. ID ${id}. Saldo ${account}: ${formatAmount(balances[account])}.${balanceWarning(account, balances)}`;
 }
 
 type Handler = (command: Command, deps: Deps) => Promise<string>;
@@ -69,6 +124,8 @@ const handlers: Record<string, Handler> = {
   start: async () => HELP,
   saldo: async (_command, deps) => saldoText(await deps.repo.getBalances()),
   saldo_awal: async (command, deps) => setOpeningBalance(command.args, deps),
+  pengeluaran: async (command, deps) => recordTransaction(command.args, 'expense', deps),
+  pemasukan: async (command, deps) => recordTransaction(command.args, 'income', deps),
 };
 
 export async function execute(command: Command | null, deps: Deps): Promise<string> {

@@ -1,0 +1,144 @@
+import { describe, expect, it } from 'vitest';
+import { parseCommand } from '../src/command';
+import type { Deps } from '../src/execute';
+import { execute } from '../src/execute';
+import type { Account, Balances, Repo } from '../src/repo';
+
+interface Recorded {
+  account: Account;
+  type: 'expense' | 'income';
+  amount: number;
+  description: string;
+}
+
+function memoryRepo(initial: Balances = { tunai: 0, bank: 0 }): { repo: Repo; entries: Recorded[] } {
+  const balances: Balances = { ...initial };
+  const entries: Recorded[] = [];
+  let nextId = 1;
+
+  return {
+    entries,
+    repo: {
+      setOpeningBalance: async (account, amount) => {
+        balances[account] = amount;
+        return nextId++;
+      },
+      getBalances: async () => ({ ...balances }),
+      async addExpenseOrIncome(account, type, amount, description) {
+        entries.push({ account, type, amount, description });
+        balances[account] += type === 'expense' ? -amount : amount;
+        return nextId++;
+      },
+    },
+  };
+}
+
+const deps = (repo: Repo): Deps => ({ now: () => new Date('2026-11-03T01:00:00Z'), repo });
+const run = (text: string, repo: Repo): Promise<string> => execute(parseCommand(text), deps(repo));
+
+describe('/pengeluaran', () => {
+  it('mencatat Pengeluaran di tunai secara default (FR-030, FR-032)', async () => {
+    const { repo, entries } = memoryRepo({ tunai: 200_000, bank: 0 });
+    const text = await run('/pengeluaran makan siang 25rb', repo);
+
+    expect(entries).toEqual([{ account: 'tunai', type: 'expense', amount: 25_000, description: 'makan siang' }]);
+    expect(text).toContain('Pengeluaran');
+    expect(text).toContain('makan siang');
+    expect(text).toContain('25.000');
+    expect(text).toContain('tunai');
+    expect(text).toContain('ID 1');
+    expect(text).toContain('Saldo tunai: 175.000');
+  });
+
+  it('mencatat dari bank lewat flag @bank (FR-032)', async () => {
+    const { repo, entries } = memoryRepo({ tunai: 0, bank: 1_000_000 });
+    const text = await run('/pengeluaran spotify 55rb @bank', repo);
+
+    expect(entries).toEqual([{ account: 'bank', type: 'expense', amount: 55_000, description: 'spotify' }]);
+    expect(text).toContain('Saldo bank: 945.000');
+  });
+
+  it('menerima flag @tunai eksplisit (FR-032)', async () => {
+    const { repo, entries } = memoryRepo();
+    await run('/pengeluaran parkir 5rb @tunai', repo);
+
+    expect(entries[0]?.account).toBe('tunai');
+    expect(entries[0]?.amount).toBe(5_000);
+  });
+
+  it('Nominal adalah token terakhir sebelum flag; sisanya deskripsi (FR-033)', async () => {
+    const { repo, entries } = memoryRepo();
+    await run('/pengeluaran bayar kos 2 bulan 3jt', repo);
+
+    expect(entries[0]).toEqual({
+      account: 'tunai',
+      type: 'expense',
+      amount: 3_000_000,
+      description: 'bayar kos 2 bulan',
+    });
+  });
+
+  it('menerima prefix Rp tanpa memasukkannya ke deskripsi (FR-034)', async () => {
+    const { repo, entries } = memoryRepo();
+    const text = await run('/pengeluaran kopi Rp 25.000', repo);
+
+    expect(entries[0]?.amount).toBe(25_000);
+    expect(entries[0]?.description).toBe('kopi');
+    expect(text).toContain('kopi');
+  });
+
+  it('memunculkan peringatan bila saldo akun menjadi negatif (FR-022)', async () => {
+    const { repo } = memoryRepo({ tunai: 10_000, bank: 0 });
+    const text = await run('/pengeluaran makan siang 25rb', repo);
+
+    expect(text).toContain('Peringatan');
+    expect(text).toContain('tunai');
+  });
+
+  it.each([
+    ['/pengeluaran', 'tanpa argumen'],
+    ['/pengeluaran 25rb', 'tanpa deskripsi'],
+    ['/pengeluaran makan siang', 'tanpa Nominal'],
+    ['/pengeluaran makan 1,5', 'Nominal tidak sah'],
+    ['/pengeluaran makan 0', 'Nominal nol'],
+    ['/pengeluaran makan 25rb @dompet', 'Akun tidak dikenal'],
+    ['/pengeluaran makan @bank 25rb', 'flag Akun bukan di akhir'],
+    ['/pengeluaran 25rb makan', 'token terakhir bukan Nominal'],
+  ])('%s ditolak dengan petunjuk dan tanpa menulis (%s)', async (line) => {
+    const { repo, entries } = memoryRepo();
+    const text = await run(line, repo);
+
+    expect(entries).toEqual([]);
+    expect(text).toContain('/pengeluaran makan siang 25rb');
+  });
+});
+
+describe('/pemasukan', () => {
+  it('mencatat Pemasukan ke bank lewat @bank (FR-031)', async () => {
+    const { repo, entries } = memoryRepo({ tunai: 0, bank: 100_000 });
+    const text = await run('/pemasukan gaji 5jt @bank', repo);
+
+    expect(entries).toEqual([{ account: 'bank', type: 'income', amount: 5_000_000, description: 'gaji' }]);
+    expect(text).toContain('Pemasukan');
+    expect(text).toContain('gaji');
+    expect(text).toContain('5.000.000');
+    expect(text).toContain('bank');
+    expect(text).toContain('Saldo bank: 5.100.000');
+  });
+
+  it('default ke tunai (FR-032)', async () => {
+    const { repo, entries } = memoryRepo();
+    await run('/pemasukan jual sepeda 500rb', repo);
+
+    expect(entries[0]?.account).toBe('tunai');
+    expect(entries[0]?.type).toBe('income');
+  });
+
+  it('menolak masukan tidak sah tanpa menulis (FR-035)', async () => {
+    const { repo, entries } = memoryRepo();
+    const text = await run('/pemasukan 5jt', repo);
+
+    expect(entries).toEqual([]);
+    expect(text).toContain('/pemasukan gaji 5jt @bank');
+  });
+});

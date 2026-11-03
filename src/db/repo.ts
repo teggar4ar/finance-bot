@@ -1,4 +1,4 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import type { Account, Balances, Repo } from '../repo';
 
 /** `pg` mengembalikan BIGINT sebagai string (NFR-011). */
@@ -8,15 +8,30 @@ function toSafeNumber(value: string): number {
   return amount;
 }
 
+const DISCARD_REDO_HISTORY =
+  'UPDATE transactions SET deleted_at = now() WHERE undone_at IS NOT NULL AND deleted_at IS NULL';
+
+/** Semua tulis multi-baris all-or-nothing (NFR-013). */
+async function inTransaction<T>(pool: Pool, work: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await work(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export function createRepo(pool: Pool): Repo {
   return {
     async setOpeningBalance(account, amount) {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        await client.query(
-          'UPDATE transactions SET deleted_at = now() WHERE undone_at IS NOT NULL AND deleted_at IS NULL',
-        );
+      return inTransaction(pool, async (client) => {
+        await client.query(DISCARD_REDO_HISTORY);
         await client.query(
           "UPDATE transactions SET deleted_at = now() WHERE type = 'opening' AND account = $1 AND deleted_at IS NULL",
           [account],
@@ -25,14 +40,19 @@ export function createRepo(pool: Pool): Repo {
           "INSERT INTO transactions (type, account, amount, description) VALUES ('opening', $1, $2, 'Saldo awal') RETURNING id",
           [account, amount],
         );
-        await client.query('COMMIT');
         return toSafeNumber(rows[0]!.id);
-      } catch (error) {
-        await client.query('ROLLBACK');
-        throw error;
-      } finally {
-        client.release();
-      }
+      });
+    },
+
+    async addExpenseOrIncome(account, type, amount, description) {
+      return inTransaction(pool, async (client) => {
+        await client.query(DISCARD_REDO_HISTORY);
+        const { rows } = await client.query<{ id: string }>(
+          'INSERT INTO transactions (type, account, amount, description) VALUES ($1, $2, $3, $4) RETURNING id',
+          [type, account, amount, description],
+        );
+        return toSafeNumber(rows[0]!.id);
+      });
     },
 
     async getBalances() {

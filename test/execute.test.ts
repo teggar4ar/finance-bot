@@ -7,6 +7,7 @@ const deps: Deps = {
   now: () => new Date('2026-11-03T01:00:00Z'),
   repo: {
     setOpeningBalance: async () => 1,
+    addExpenseOrIncome: async () => 1,
     getBalances: async () => ({ tunai: 0, bank: 0 }),
   },
 };
