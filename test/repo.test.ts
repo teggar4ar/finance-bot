@@ -101,4 +101,59 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
     );
     expect(rows[0]?.count).toBe('0');
   });
+
+  it('menyimpan Transfer sebagai satu baris dengan akun asal dan tujuan (FR-036, FR-037)', async () => {
+    await repo.setOpeningBalance('tunai', 200_000);
+    await repo.setOpeningBalance('bank', 5_000_000);
+
+    const id = await repo.addTransfer('bank', 'tunai', 500_000, 'Transfer bank ke tunai');
+
+    const { rows } = await pool.query<{ type: string; account: string; to_account: string; amount: string }>(
+      'SELECT type, account, to_account, amount::text AS amount FROM transactions WHERE id = $1',
+      [id],
+    );
+    expect(rows).toEqual([{ type: 'transfer', account: 'bank', to_account: 'tunai', amount: '500000' }]);
+    expect(await repo.getBalances()).toEqual({ tunai: 700_000, bank: 4_500_000 });
+  });
+
+  it('Transfer muncul sebagai dua Baris ledger dan totalnya tetap (FR-037)', async () => {
+    await repo.setOpeningBalance('bank', 1_000_000);
+    const id = await repo.addTransfer('bank', 'tunai', 250_000, 'Transfer bank ke tunai');
+
+    const { rows } = await pool.query<{ account: string; money_in: string; money_out: string }>(
+      'SELECT account, money_in::text AS money_in, money_out::text AS money_out FROM ledger_entries WHERE id = $1 ORDER BY leg',
+      [id],
+    );
+    expect(rows).toEqual([
+      { account: 'bank', money_in: '0', money_out: '250000' },
+      { account: 'tunai', money_in: '250000', money_out: '0' },
+    ]);
+    expect(await repo.getBalances()).toEqual({ tunai: 250_000, bank: 750_000 });
+  });
+
+  it('Transfer yang ditolak database tidak menulis apa pun (FR-037, NFR-013)', async () => {
+    await repo.setOpeningBalance('tunai', 200_000);
+    await pool.query("UPDATE transactions SET undone_at = now() WHERE type = 'opening'");
+
+    // Akun asal = tujuan melanggar chk_tx_transfer; tidak ada baris Transfer yang tersisa.
+    await expect(repo.addTransfer('tunai', 'tunai', 50_000, 'Transfer tunai ke tunai')).rejects.toThrow();
+
+    const { rows } = await pool.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM transactions WHERE type = 'transfer'",
+    );
+    expect(rows[0]?.count).toBe('0');
+  });
+
+  it('Transfer membuang seluruh Riwayat undo (FR-053)', async () => {
+    await repo.setOpeningBalance('bank', 1_000_000);
+    // /undo belum ada (#6); status dibatalkan disiapkan langsung di sini.
+    await pool.query("UPDATE transactions SET undone_at = now() WHERE type = 'opening'");
+
+    await repo.addTransfer('bank', 'tunai', 100_000, 'Transfer bank ke tunai');
+
+    const { rows } = await pool.query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM transactions WHERE undone_at IS NOT NULL AND deleted_at IS NULL',
+    );
+    expect(rows[0]?.count).toBe('0');
+  });
 });

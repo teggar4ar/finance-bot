@@ -39,14 +39,16 @@ const USAGE_PENGELUARAN =
   'Format: /pengeluaran <deskripsi> <nominal> [@bank|@tunai], contoh /pengeluaran makan siang 25rb';
 const USAGE_PEMASUKAN =
   'Format: /pemasukan <deskripsi> <nominal> [@bank|@tunai], contoh /pemasukan gaji 5jt @bank';
+const USAGE_TRANSFER = 'Format: /transfer <dari> <ke> <nominal>, contoh /transfer bank tunai 500rb';
 
 function negativeWarning(negative: readonly Account[]): string {
   return negative.length > 0 ? `Peringatan: saldo ${negative.join(' dan ')} negatif.` : '';
 }
 
-/** FR-022: peringatan bila tulisan meninggalkan saldo akun negatif. */
-function balanceWarning(account: Account, balances: Balances): string {
-  return balances[account] < 0 ? ` ${negativeWarning([account])}` : '';
+/** FR-022: peringatan bila tulisan meninggalkan saldo Akun negatif. */
+function balanceWarning(accounts: readonly Account[], balances: Balances): string {
+  const negative = accounts.filter((account) => balances[account] < 0);
+  return negative.length > 0 ? ` ${negativeWarning(negative)}` : '';
 }
 
 function saldoText(balances: Balances): string {
@@ -67,7 +69,7 @@ async function setOpeningBalance(args: string, deps: Deps): Promise<string> {
 
   const id = await deps.repo.setOpeningBalance(account, amount);
   const balances = await deps.repo.getBalances();
-  return `Saldo awal ${account} ${formatAmount(amount)} dicatat. ID ${id}. Saldo ${account}: ${formatAmount(balances[account])}.${balanceWarning(account, balances)}`;
+  return `Saldo awal ${account} ${formatAmount(amount)} dicatat. ID ${id}. Saldo ${account}: ${formatAmount(balances[account])}.${balanceWarning([account], balances)}`;
 }
 
 interface NewTransaction {
@@ -114,7 +116,20 @@ async function recordTransaction(args: string, type: ExpenseOrIncome, deps: Deps
   const balances = await deps.repo.getBalances();
   const label = type === 'expense' ? 'Pengeluaran' : 'Pemasukan';
   const { account, amount, description } = transaction;
-  return `${label} ${description} ${formatAmount(amount)} (${account}) tercatat. ID ${id}. Saldo ${account}: ${formatAmount(balances[account])}.${balanceWarning(account, balances)}`;
+  return `${label} ${description} ${formatAmount(amount)} (${account}) tercatat. ID ${id}. Saldo ${account}: ${formatAmount(balances[account])}.${balanceWarning([account], balances)}`;
+}
+
+/** FR-036: urutan argumen <from> <to> <amount>, tanpa deskripsi dari pengguna. */
+async function recordTransfer(args: string, deps: Deps): Promise<string> {
+  const [from, to, ...rest] = args.trim().split(/\s+/);
+  const amount = parseAmount(rest.join(' '));
+  if (!isAccount(from) || !isAccount(to) || amount === null) return USAGE_TRANSFER;
+  if (from === to) return `Tidak bisa transfer ke akun yang sama. ${USAGE_TRANSFER}`;
+
+  const description = `Transfer ${from} ke ${to}`;
+  const id = await deps.repo.addTransfer(from, to, amount, description);
+  const balances = await deps.repo.getBalances();
+  return `${description} ${formatAmount(amount)} tercatat. ID ${id}. Saldo ${from}: ${formatAmount(balances[from])}. Saldo ${to}: ${formatAmount(balances[to])}.${balanceWarning([from, to], balances)}`;
 }
 
 type Handler = (command: Command, deps: Deps) => Promise<string>;
@@ -129,6 +144,7 @@ const handlers: Record<string, Handler> = {
   saldo_awal: async (command, deps) => setOpeningBalance(command.args, deps),
   pengeluaran: async (command, deps) => recordTransaction(command.args, 'expense', deps),
   pemasukan: async (command, deps) => recordTransaction(command.args, 'income', deps),
+  transfer: async (command, deps) => recordTransfer(command.args, deps),
 };
 
 export async function execute(command: Command | null, deps: Deps): Promise<string> {

@@ -13,6 +13,8 @@ export interface Repo {
   setOpeningBalance(account: Account, amount: number): Promise<number>;
   /** Catat Pengeluaran atau Pemasukan, kembalikan ID transaksi baru (FR-030, FR-031). */
   addExpenseOrIncome(account: Account, type: ExpenseOrIncome, amount: number, description: string): Promise<number>;
+  /** Catat Transfer antar Akun, kembalikan ID transaksi baru (FR-036, FR-037). */
+  addTransfer(from: Account, to: Account, amount: number, description: string): Promise<number>;
   /** Saldo aktif tiap Akun; akun tanpa transaksi = 0 (FR-020, FR-021). */
   getBalances(): Promise<Balances>;
 }

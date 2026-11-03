@@ -8,6 +8,7 @@ const deps: Deps = {
   repo: {
     setOpeningBalance: async () => 1,
     addExpenseOrIncome: async () => 1,
+    addTransfer: async () => 1,
     getBalances: async () => ({ tunai: 0, bank: 0 }),
   },
 };

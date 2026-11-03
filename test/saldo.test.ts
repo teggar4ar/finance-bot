@@ -22,6 +22,7 @@ function memoryRepo(initial: Balances = { tunai: 0, bank: 0 }): {
         return nextId++;
       },
       addExpenseOrIncome: async () => 0,
+      addTransfer: async () => 0,
       async getBalances() {
         return { tunai: openings.tunai ?? 0, bank: openings.bank ?? 0 };
       },
@@ -89,6 +90,7 @@ describe('/saldo_awal', () => {
     const repo: Repo = {
       setOpeningBalance: async () => 7,
       addExpenseOrIncome: async () => 7,
+      addTransfer: async () => 7,
       getBalances: async () => ({ tunai: -1_000, bank: 0 }),
     };
     const text = await run('/saldo_awal tunai 200rb', repo);

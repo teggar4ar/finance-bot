@@ -55,6 +55,17 @@ export function createRepo(pool: Pool): Repo {
       });
     },
 
+    async addTransfer(from, to, amount, description) {
+      return inTransaction(pool, async (client) => {
+        await client.query(DISCARD_REDO_HISTORY);
+        const { rows } = await client.query<{ id: string }>(
+          "INSERT INTO transactions (type, account, to_account, amount, description) VALUES ('transfer', $1, $2, $3, $4) RETURNING id",
+          [from, to, amount, description],
+        );
+        return toSafeNumber(rows[0]!.id);
+      });
+    },
+
     async getBalances() {
       const { rows } = await pool.query<{ account: Account; balance: string }>(
         'SELECT account, CAST(SUM(money_in - money_out) AS BIGINT) AS balance FROM ledger_entries GROUP BY account',
