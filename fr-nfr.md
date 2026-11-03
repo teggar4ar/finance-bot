@@ -71,8 +71,8 @@ Priority: **M** = Must have, **S** = Should have.
 
 | ID | Requirement | Priority |
 |---|---|---|
-| FR-030 | `/pengeluaran <description> <amount> [@account]` shall record an expense. Example: `/pengeluaran makan siang 25rb`. | M |
-| FR-031 | `/pemasukan <description> <amount> [@account]` shall record an income. Example: `/pemasukan gaji 5jt @bank`. | M |
+| FR-030 | `/pengeluaran <description> <amount> [@account]` shall record an expense. Example: `/pengeluaran makan siang 25rb`. Short alias: `/k`. | M |
+| FR-031 | `/pemasukan <description> <amount> [@account]` shall record an income. Example: `/pemasukan gaji 5jt @bank`. Short alias: `/m`. | M |
 | FR-032 | If no account flag is given, the account shall default to `tunai`. Non-cash transactions use the flag `@bank` (and `@tunai` for explicitness). | M |
 | FR-033 | The amount shall be the last token of the message before the optional account flag. Everything before it is the description. | M |
 | FR-034 | The amount parser shall accept Indonesian formats with these rules: an optional `rp` prefix; suffixes `rb`/`k` = 1,000 and `jt`/`juta` = 1,000,000; with a suffix, a dot or comma is a decimal separator (at most 2 digits, result must be a whole number); without a suffix, a dot or comma is a thousands separator only when followed by exactly 3 digits and may repeat (`1.234.567`). A bare decimal such as `1,5` or `1.5` is invalid, as are zero, negative numbers, and more than 15 digits. Valid examples: `25rb`, `25k`, `1,5jt`, `1.5jt`, `25.000`, `25000`. | M |
@@ -169,6 +169,7 @@ Priority: **M** = Must have, **S** = Should have.
 | `/pengeluaran makan siang 25rb` | Record an expense (default: cash) |
 | `/pengeluaran spotify 55rb @bank` | Record an expense from bank |
 | `/pemasukan gaji 5jt @bank` | Record an income |
+| `/k makan siang 25rb`, `/m gaji 5jt` | Short aliases for `/pengeluaran` and `/pemasukan` |
 | `/transfer bank tunai 500rb` | Move money between accounts |
 | `/undo`, `/redo` | Revert / restore the last transaction |
 | `/riwayat` | Show the last 10 transactions with IDs |

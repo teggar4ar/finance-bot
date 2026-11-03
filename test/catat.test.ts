@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseCommand } from '../src/command';
 import type { Deps } from '../src/execute';
-import { execute } from '../src/execute';
+import { HINT, execute } from '../src/execute';
 import type { Account, Balances, Repo } from '../src/repo';
 
 interface Recorded {
@@ -140,5 +140,28 @@ describe('/pemasukan', () => {
 
     expect(entries).toEqual([]);
     expect(text).toContain('/pemasukan gaji 5jt @bank');
+  });
+});
+
+describe('alias /k dan /m (FR-030, FR-031)', () => {
+  it.each([
+    ['/k makan siang 25rb', '/pengeluaran makan siang 25rb'],
+    ['/k spotify 55rb @bank', '/pengeluaran spotify 55rb @bank'],
+    ['/m gaji 5jt @bank', '/pemasukan gaji 5jt @bank'],
+    ['/k makan 1,5', '/pengeluaran makan 1,5'],
+    ['/m 5jt', '/pemasukan 5jt'],
+  ])('%s berperilaku persis seperti %s', async (alias, canonical) => {
+    const viaAlias = memoryRepo({ tunai: 200_000, bank: 100_000 });
+    const viaCommand = memoryRepo({ tunai: 200_000, bank: 100_000 });
+
+    expect(await run(alias, viaAlias.repo)).toBe(await run(canonical, viaCommand.repo));
+    expect(viaAlias.entries).toEqual(viaCommand.entries);
+  });
+
+  it('tidak ada alias di luar /k dan /m', async () => {
+    const { repo, entries } = memoryRepo();
+    // /p dan /keluar adalah alternatif yang ditolak ADR-0004; dikunci di sini.
+    for (const line of ['/s', '/p', '/keluar']) expect(await run(line, repo)).toBe(HINT);
+    expect(entries).toEqual([]);
   });
 });

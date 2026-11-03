@@ -17,9 +17,9 @@ export const HELP = [
   '',
   '/saldo — saldo tunai, bank, dan total',
   '/saldo_awal tunai 200rb — tetapkan saldo awal satu akun',
-  '/pengeluaran makan siang 25rb — catat pengeluaran (default tunai)',
+  '/pengeluaran makan siang 25rb — catat pengeluaran, default tunai (alias /k)',
   '/pengeluaran spotify 55rb @bank — pengeluaran dari bank',
-  '/pemasukan gaji 5jt @bank — catat pemasukan',
+  '/pemasukan gaji 5jt @bank — catat pemasukan (alias /m)',
   '/transfer bank tunai 500rb — pindah uang antar akun',
   '/undo atau /redo — batalkan atau pulihkan transaksi terakhir',
   '/riwayat — 10 transaksi terakhir',
@@ -119,6 +119,9 @@ async function recordTransaction(args: string, type: ExpenseOrIncome, deps: Deps
 
 type Handler = (command: Command, deps: Deps) => Promise<string>;
 
+/** ADR-0004: /k dan /m nama lain dari handler yang sudah ada, bukan jalur terpisah. */
+const ALIASES: Record<string, string> = { k: 'pengeluaran', m: 'pemasukan' };
+
 const handlers: Record<string, Handler> = {
   help: async () => HELP,
   start: async () => HELP,
@@ -130,6 +133,6 @@ const handlers: Record<string, Handler> = {
 
 export async function execute(command: Command | null, deps: Deps): Promise<string> {
   if (!command) return HINT;
-  const handler = handlers[command.name];
+  const handler = handlers[ALIASES[command.name] ?? command.name];
   return handler ? handler(command, deps) : HINT;
 }

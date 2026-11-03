@@ -22,11 +22,11 @@ Uang yang disimpan di rekening bank.
 Jumlah awal satu akun. Dicatat sebagai transaksi bertipe `opening`; ia titik mulai, bukan pendapatan. Boleh ditetapkan kapan saja dan selalu dianggap berada sebelum transaksi lain.
 _Avoid_: initial balance, modal, saldo pertama
 
-**Pengeluaran** (`expense`, command `/pengeluaran`):
+**Pengeluaran** (`expense`, command `/pengeluaran`, alias `/k`):
 Uang keluar dari satu akun.
 _Avoid_: debit, belanja, expense
 
-**Pemasukan** (`income`, command `/pemasukan`):
+**Pemasukan** (`income`, command `/pemasukan`, alias `/m`):
 Uang masuk ke satu akun.
 _Avoid_: credit, kredit, pendapatan, income
 

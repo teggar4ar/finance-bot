@@ -44,6 +44,11 @@ describe('execute', () => {
     }
   });
 
+  it('daftar command memuat alias /k dan /m (FR-030, FR-031)', () => {
+    expect(HELP).toContain('(alias /k)');
+    expect(HELP).toContain('(alias /m)');
+  });
+
   it('teks biasa dibalas petunjuk singkat (FR-103)', async () => {
     expect(await execute(parseCommand('halo bot'), deps)).toBe(HINT);
   });
