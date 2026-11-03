@@ -28,6 +28,9 @@ function memoryRepo(initial: Balances = { tunai: 0, bank: 0 }): {
       },
       undoLast: async () => null,
       redoLast: async () => null,
+      getHistory: async () => [],
+      editTransaction: async () => null,
+      deleteTransaction: async () => null,
     },
   };
 }
@@ -96,6 +99,9 @@ describe('/saldo_awal', () => {
       getBalances: async () => ({ tunai: -1_000, bank: 0 }),
       undoLast: async () => null,
       redoLast: async () => null,
+      getHistory: async () => [],
+      editTransaction: async () => null,
+      deleteTransaction: async () => null,
     };
     const text = await run('/saldo_awal tunai 200rb', repo);
 

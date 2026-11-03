@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
-import type { Account, Balances, Repo, Transaction } from '../repo';
+import type { Account, Balances, HistoryTransaction, Repo, Transaction } from '../repo';
 
 /** `pg` mengembalikan BIGINT sebagai string (NFR-011). */
 function toSafeNumber(value: string): number {
@@ -18,6 +18,10 @@ interface TransactionRow {
 }
 
 const TX_COLUMNS = 'id, type, account, to_account, amount, description';
+
+interface HistoryRow extends TransactionRow {
+  occurred_at: Date;
+}
 
 function toTransaction(row: TransactionRow): Transaction {
   const base = {
@@ -125,6 +129,41 @@ export function createRepo(pool: Pool): Repo {
            LIMIT 1
          )
          RETURNING ${TX_COLUMNS}`,
+      );
+      return rows[0] ? toTransaction(rows[0]) : null;
+    },
+
+    async getHistory(limit) {
+      const { rows } = await pool.query<HistoryRow>(
+        `SELECT ${TX_COLUMNS}, occurred_at
+         FROM transactions
+         WHERE undone_at IS NULL AND deleted_at IS NULL
+         ORDER BY occurred_at DESC, id DESC
+         LIMIT $1`,
+        [limit],
+      );
+      return rows.map((row): HistoryTransaction => ({ ...toTransaction(row), occurredAt: row.occurred_at }));
+    },
+
+    // Tanpa DISCARD_REDO_HISTORY: edit dan hapus tidak membuang Riwayat undo (FR-053).
+    async editTransaction(id, description, amount, account) {
+      const { rows } = await pool.query<TransactionRow>(
+        `UPDATE transactions
+         SET description = $2, amount = $3, account = COALESCE($4, account)
+         WHERE id = $1 AND type IN ('expense', 'income') AND undone_at IS NULL AND deleted_at IS NULL
+         RETURNING ${TX_COLUMNS}`,
+        [id, description, amount, account],
+      );
+      return rows[0] ? toTransaction(rows[0]) : null;
+    },
+
+    async deleteTransaction(id) {
+      const { rows } = await pool.query<TransactionRow>(
+        `UPDATE transactions
+         SET deleted_at = now()
+         WHERE id = $1 AND undone_at IS NULL AND deleted_at IS NULL
+         RETURNING ${TX_COLUMNS}`,
+        [id],
       );
       return rows[0] ? toTransaction(rows[0]) : null;
     },

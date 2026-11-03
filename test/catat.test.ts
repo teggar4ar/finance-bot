@@ -32,6 +32,9 @@ function memoryRepo(initial: Balances = { tunai: 0, bank: 0 }): { repo: Repo; en
       addTransfer: async () => nextId++,
       undoLast: async () => null,
       redoLast: async () => null,
+      getHistory: async () => [],
+      editTransaction: async () => null,
+      deleteTransaction: async () => null,
     },
   };
 }

@@ -235,4 +235,108 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
     expect((await repo.redoLast())?.type).toBe('opening');
     expect(await repo.getBalances()).toEqual({ tunai: 200_000, bank: 0 });
   });
+
+  it('getHistory hanya Transaksi aktif, terbaru lebih dulu (FR-060)', async () => {
+    const older = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+    const newer = await repo.addExpenseOrIncome('bank', 'income', 5_000_000, 'gaji');
+    await repo.addExpenseOrIncome('tunai', 'expense', 5_000, 'parkir');
+    await repo.undoLast();
+    await pool.query("UPDATE transactions SET occurred_at = '2026-11-01T02:00:00Z' WHERE id = $1", [older]);
+
+    const history = await repo.getHistory(10);
+
+    expect(history.map((entry) => entry.id)).toEqual([newer, older]);
+    expect(history[0]?.occurredAt).toBeInstanceOf(Date);
+    expect(history[1]?.occurredAt.toISOString()).toBe('2026-11-01T02:00:00.000Z');
+    expect((await repo.getHistory(1)).map((entry) => entry.id)).toEqual([newer]);
+  });
+
+  it('editTransaction mengubah deskripsi, Nominal, dan akun (FR-061)', async () => {
+    const id = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+
+    expect(await repo.editTransaction(id, 'makan malam', 30_000, 'bank')).toEqual({
+      id,
+      type: 'expense',
+      account: 'bank',
+      toAccount: null,
+      amount: 30_000,
+      description: 'makan malam',
+    });
+    expect(await repo.getBalances()).toEqual({ tunai: 0, bank: -30_000 });
+  });
+
+  it('editTransaction tanpa akun mempertahankan akun lama (FR-061)', async () => {
+    const id = await repo.addExpenseOrIncome('bank', 'income', 5_000_000, 'gaji');
+    await repo.editTransaction(id, 'gaji november', 6_000_000, null);
+
+    expect(await repo.getBalances()).toEqual({ tunai: 0, bank: 6_000_000 });
+    expect((await repo.getHistory(10))[0]?.account).toBe('bank');
+  });
+
+  it('editTransaction menolak Transfer, Saldo awal, dan ID tak dikenal (FR-063, FR-065)', async () => {
+    const opening = await repo.setOpeningBalance('bank', 1_000_000);
+    const transfer = await repo.addTransfer('bank', 'tunai', 100_000, 'Transfer bank ke tunai');
+
+    expect(await repo.editTransaction(opening, 'saldo', 1, null)).toBeNull();
+    expect(await repo.editTransaction(transfer, 'pindah', 1, null)).toBeNull();
+    expect(await repo.editTransaction(9_999, 'apa saja', 1, null)).toBeNull();
+    expect(await repo.getBalances()).toEqual({ tunai: 100_000, bank: 900_000 });
+  });
+
+  it('editTransaction menolak Transaksi Dibatalkan dan Dihapus (FR-063)', async () => {
+    const undone = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+    await repo.undoLast();
+    const deleted = await repo.addExpenseOrIncome('tunai', 'expense', 5_000, 'parkir');
+    await repo.deleteTransaction(deleted);
+
+    expect(await repo.editTransaction(undone, 'makan malam', 30_000, null)).toBeNull();
+    expect(await repo.editTransaction(deleted, 'parkir motor', 10_000, null)).toBeNull();
+    expect(await repo.getBalances()).toEqual({ tunai: 0, bank: 0 });
+  });
+
+  it('deleteTransaction menghapus Transaksi aktif beserta efeknya di saldo (FR-062)', async () => {
+    const id = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+
+    expect(await repo.deleteTransaction(id)).toEqual({
+      id,
+      type: 'expense',
+      account: 'tunai',
+      toAccount: null,
+      amount: 25_000,
+      description: 'makan siang',
+    });
+    expect(await repo.getBalances()).toEqual({ tunai: 0, bank: 0 });
+    expect(await repo.getHistory(10)).toEqual([]);
+    expect(await repo.deleteTransaction(id)).toBeNull();
+  });
+
+  it('deleteTransaction pada Transfer menghapus kedua Baris ledger (FR-062)', async () => {
+    await repo.setOpeningBalance('bank', 1_000_000);
+    const id = await repo.addTransfer('bank', 'tunai', 250_000, 'Transfer bank ke tunai');
+
+    expect((await repo.deleteTransaction(id))?.type).toBe('transfer');
+    expect(await repo.getBalances()).toEqual({ tunai: 0, bank: 1_000_000 });
+  });
+
+  it('Transaksi yang Dihapus tidak bisa dipulihkan dengan redo (FR-062)', async () => {
+    await repo.setOpeningBalance('tunai', 200_000);
+    const id = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+    await repo.deleteTransaction(id);
+
+    expect(await repo.redoLast()).toBeNull();
+    expect(await repo.getBalances()).toEqual({ tunai: 200_000, bank: 0 });
+  });
+
+  it('edit dan hapus tidak membuang Riwayat undo (FR-053)', async () => {
+    await repo.setOpeningBalance('tunai', 200_000);
+    const edited = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+    const removed = await repo.addExpenseOrIncome('tunai', 'expense', 5_000, 'parkir');
+    const undone = await repo.addExpenseOrIncome('tunai', 'expense', 10_000, 'kopi');
+    await repo.undoLast();
+
+    await repo.editTransaction(edited, 'makan malam', 30_000, null);
+    await repo.deleteTransaction(removed);
+
+    expect((await repo.redoLast())?.id).toBe(undone);
+  });
 });

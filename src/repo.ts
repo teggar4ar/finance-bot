@@ -21,6 +21,9 @@ export type Transaction =
   | (TransactionBase & { type: 'opening' | ExpenseOrIncome; toAccount: null })
   | (TransactionBase & { type: 'transfer'; toAccount: Account });
 
+/** Transaksi aktif plus waktu pencatatannya, untuk /riwayat (FR-060). */
+export type HistoryTransaction = Transaction & { occurredAt: Date };
+
 export interface Repo {
   /** Ganti Saldo awal akun, kembalikan ID transaksi baru (FR-011, FR-013). */
   setOpeningBalance(account: Account, amount: number): Promise<number>;
@@ -34,6 +37,12 @@ export interface Repo {
   undoLast(): Promise<Transaction | null>;
   /** Pulihkan Transaksi yang terakhir Dibatalkan (LIFO); `null` bila tidak ada (FR-052). */
   redoLast(): Promise<Transaction | null>;
+  /** Daftar Transaksi aktif, terbaru lebih dulu (FR-060). */
+  getHistory(limit: number): Promise<HistoryTransaction[]>;
+  /** Ubah Pengeluaran/Pemasukan aktif; `account` null = biarkan akun lama (FR-061, FR-065). */
+  editTransaction(id: number, description: string, amount: number, account: Account | null): Promise<Transaction | null>;
+  /** Hapus Transaksi aktif; `null` bila ID tidak ada atau sudah tidak aktif (FR-062, FR-063). */
+  deleteTransaction(id: number): Promise<Transaction | null>;
 }
 
 export function isAccount(value: string | undefined): value is Account {

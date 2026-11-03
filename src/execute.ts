@@ -1,6 +1,6 @@
 import { formatAmount, parseAmount } from './amount';
 import type { Command } from './command';
-import type { Account, Balances, ExpenseOrIncome, Repo, Transaction } from './repo';
+import type { Account, Balances, ExpenseOrIncome, HistoryTransaction, Repo, Transaction } from './repo';
 import { isAccount } from './repo';
 
 /**
@@ -40,6 +40,14 @@ const USAGE_PENGELUARAN =
 const USAGE_PEMASUKAN =
   'Format: /pemasukan <deskripsi> <nominal> [@bank|@tunai], contoh /pemasukan gaji 5jt @bank';
 const USAGE_TRANSFER = 'Format: /transfer <dari> <ke> <nominal>, contoh /transfer bank tunai 500rb';
+const USAGE_EDIT = 'Format: /edit <id> <deskripsi> <nominal> [@bank|@tunai], contoh /edit 12 makan malam 30rb';
+const USAGE_HAPUS = 'Format: /hapus <id>, contoh /hapus 12';
+
+const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+const HISTORY_LIMIT = 10;
+
+/** Nama jenis yang tampil ke pengguna; satu tempat supaya balasan tidak berbeda kata. */
+const TYPE_LABELS: Record<ExpenseOrIncome, string> = { expense: 'Pengeluaran', income: 'Pemasukan' };
 
 function negativeWarning(negative: readonly Account[]): string {
   return negative.length > 0 ? `Peringatan: saldo ${negative.join(' dan ')} negatif.` : '';
@@ -73,19 +81,20 @@ async function setOpeningBalance(args: string, deps: Deps): Promise<string> {
 }
 
 interface NewTransaction {
-  account: Account;
+  /** null = flag Akun tidak diberikan. */
+  account: Account | null;
   amount: number;
   description: string;
 }
 
 /**
  * FR-033: Nominal adalah token terakhir sebelum flag Akun, sisanya deskripsi.
- * FR-032: tanpa flag, Akun = tunai.
+ * FR-032: tanpa flag, Akun = tunai. `/edit` mengirim null agar akun lama dipertahankan.
  */
-function parseTransaction(args: string): NewTransaction | null {
+function parseTransaction(args: string, defaultAccount: Account | null = 'tunai'): NewTransaction | null {
   const tokens = args.trim().split(/\s+/).filter(Boolean);
 
-  let account: Account = 'tunai';
+  let account = defaultAccount;
   const flag = tokens.at(-1);
   if (flag?.startsWith('@')) {
     const name = flag.slice(1).toLowerCase();
@@ -107,15 +116,11 @@ async function recordTransaction(args: string, type: ExpenseOrIncome, deps: Deps
   const transaction = parseTransaction(args);
   if (!transaction) return type === 'expense' ? USAGE_PENGELUARAN : USAGE_PEMASUKAN;
 
-  const id = await deps.repo.addExpenseOrIncome(
-    transaction.account,
-    type,
-    transaction.amount,
-    transaction.description,
-  );
+  const account = transaction.account ?? 'tunai';
+  const id = await deps.repo.addExpenseOrIncome(account, type, transaction.amount, transaction.description);
   const balances = await deps.repo.getBalances();
-  const label = type === 'expense' ? 'Pengeluaran' : 'Pemasukan';
-  const { account, amount, description } = transaction;
+  const label = TYPE_LABELS[type];
+  const { amount, description } = transaction;
   return `${label} ${description} ${formatAmount(amount)} (${account}) tercatat. ID ${id}. Saldo ${account}: ${formatAmount(balances[account])}.${balanceWarning([account], balances)}`;
 }
 
@@ -139,8 +144,12 @@ function transactionLabel(transaction: Transaction): string {
   const { type, account, amount, description } = transaction;
   if (type === 'transfer') return `${description} ${formatAmount(amount)}`;
   if (type === 'opening') return `Saldo awal ${account} ${formatAmount(amount)}`;
-  const label = type === 'expense' ? 'Pengeluaran' : 'Pemasukan';
-  return `${label} ${description} ${formatAmount(amount)} (${account})`;
+  return `${TYPE_LABELS[type]} ${description} ${formatAmount(amount)} (${account})`;
+}
+
+/** Akun yang saldonya tersentuh Transaksi ini. */
+function affectedAccounts(transaction: Transaction): Account[] {
+  return transaction.type === 'transfer' ? [transaction.account, transaction.toAccount] : [transaction.account];
 }
 
 async function undoOrRedo(action: 'undo' | 'redo', deps: Deps): Promise<string> {
@@ -149,11 +158,77 @@ async function undoOrRedo(action: 'undo' | 'redo', deps: Deps): Promise<string> 
     return action === 'undo' ? 'Tidak ada transaksi yang bisa dibatalkan.' : 'Tidak ada transaksi yang bisa dipulihkan.';
   }
 
-  const accounts = transaction.type === 'transfer' ? [transaction.account, transaction.toAccount] : [transaction.account];
+  const accounts = affectedAccounts(transaction);
   const balances = await deps.repo.getBalances();
-  const saldoSummary = accounts.map((account) => `Saldo ${account}: ${formatAmount(balances[account])}.`).join(' ');
   const verb = action === 'undo' ? 'Dibatalkan' : 'Dipulihkan';
-  return `${verb}: ${transactionLabel(transaction)}, ID ${transaction.id}. ${saldoSummary}`;
+  return `${verb}: ${transactionLabel(transaction)}, ID ${transaction.id}. ${saldoSummary(accounts, balances)}`;
+}
+
+function saldoSummary(accounts: readonly Account[], balances: Balances): string {
+  return accounts.map((account) => `Saldo ${account}: ${formatAmount(balances[account])}.`).join(' ');
+}
+
+/** `occurred_at` disimpan UTC; WIB selalu UTC+7 (CONTEXT.md). */
+function wibTimestamp(occurredAt: Date): string {
+  const wib = new Date(occurredAt.getTime() + WIB_OFFSET_MS);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${pad(wib.getUTCDate())}/${pad(wib.getUTCMonth() + 1)} ${pad(wib.getUTCHours())}:${pad(wib.getUTCMinutes())}`;
+}
+
+/** FR-060: Transfer tampil `bank -> tunai`, Saldo awal tampil `saldo awal`. */
+function historyLine(transaction: HistoryTransaction): string {
+  const head = `#${transaction.id} ${wibTimestamp(transaction.occurredAt)}`;
+  if (transaction.type === 'opening') return `${head} saldo awal ${transaction.account} ${formatAmount(transaction.amount)}`;
+  if (transaction.type === 'transfer') {
+    return `${head} Transfer ${formatAmount(transaction.amount)} ${transaction.account} -> ${transaction.toAccount}`;
+  }
+  const label = TYPE_LABELS[transaction.type];
+  return `${head} ${label} ${transaction.account} ${formatAmount(transaction.amount)} ${transaction.description}`;
+}
+
+async function history(deps: Deps): Promise<string> {
+  const transactions = await deps.repo.getHistory(HISTORY_LIMIT);
+  if (transactions.length === 0) return 'Belum ada transaksi.';
+  return ['Riwayat transaksi terakhir:', ...transactions.map(historyLine)].join('\n');
+}
+
+/** ID dari pengguna; hanya bilangan bulat positif (FR-061, FR-062). */
+function parseId(token: string | undefined): number | null {
+  if (!token || !/^\d+$/.test(token)) return null;
+  const id = Number(token);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+/** FR-061/FR-065: hanya Pengeluaran dan Pemasukan yang bisa diedit. */
+async function editTransaction(args: string, deps: Deps): Promise<string> {
+  const [idToken, ...rest] = args.trim().split(/\s+/);
+  const id = parseId(idToken);
+  const transaction = parseTransaction(rest.join(' '), null);
+  if (id === null || !transaction) return USAGE_EDIT;
+
+  const edited = await deps.repo.editTransaction(id, transaction.description, transaction.amount, transaction.account);
+  if (!edited) {
+    return `Tidak bisa mengedit ID ${id}: Transaksi tidak ada, sudah Dihapus, atau bukan Pengeluaran/Pemasukan. ${USAGE_EDIT}`;
+  }
+
+  // Akun bisa berpindah, dan kita tidak tahu akun lama; tampilkan keduanya (FR-064).
+  const accounts: Account[] = ['tunai', 'bank'];
+  const balances = await deps.repo.getBalances();
+  return `Diubah: ${transactionLabel(edited)}, ID ${edited.id}. ${saldoSummary(accounts, balances)}${balanceWarning(accounts, balances)}`;
+}
+
+/** FR-062: hapus berlaku untuk Transaksi aktif apa pun, tidak membuang Riwayat undo (FR-053). */
+async function deleteTransaction(args: string, deps: Deps): Promise<string> {
+  const [idToken, ...rest] = args.trim().split(/\s+/);
+  const id = parseId(idToken);
+  if (id === null || rest.length > 0) return USAGE_HAPUS;
+
+  const deleted = await deps.repo.deleteTransaction(id);
+  if (!deleted) return `Tidak ada Transaksi aktif dengan ID ${id}. ${USAGE_HAPUS}`;
+
+  const accounts = affectedAccounts(deleted);
+  const balances = await deps.repo.getBalances();
+  return `Dihapus: ${transactionLabel(deleted)}, ID ${deleted.id}. ${saldoSummary(accounts, balances)}${balanceWarning(accounts, balances)}`;
 }
 
 /** ADR-0004: /k dan /m nama lain dari handler yang sudah ada, bukan jalur terpisah. */
@@ -169,6 +244,9 @@ const handlers: Record<string, Handler> = {
   transfer: async (command, deps) => recordTransfer(command.args, deps),
   undo: async (_command, deps) => undoOrRedo('undo', deps),
   redo: async (_command, deps) => undoOrRedo('redo', deps),
+  riwayat: async (_command, deps) => history(deps),
+  edit: async (command, deps) => editTransaction(command.args, deps),
+  hapus: async (command, deps) => deleteTransaction(command.args, deps),
 };
 
 export async function execute(command: Command | null, deps: Deps): Promise<string> {

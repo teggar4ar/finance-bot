@@ -12,6 +12,9 @@ function fakeRepo(overrides: Partial<Repo> = {}): Repo {
     getBalances: async () => ({ tunai: 0, bank: 0 }),
     undoLast: async () => null,
     redoLast: async () => null,
+    getHistory: async () => [],
+    editTransaction: async () => null,
+    deleteTransaction: async () => null,
     ...overrides,
   };
 }
