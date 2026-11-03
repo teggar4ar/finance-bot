@@ -1,4 +1,7 @@
+import { formatAmount, parseAmount } from './amount';
 import type { Command } from './command';
+import type { Account, Balances, Repo } from './repo';
+import { isAccount } from './repo';
 
 /**
  * Seam perilaku: Telegram → `execute` → teks balasan.
@@ -6,6 +9,7 @@ import type { Command } from './command';
  */
 export interface Deps {
   now: () => Date;
+  repo: Repo;
 }
 
 export const HELP = [
@@ -30,12 +34,45 @@ export const HELP = [
 
 export const HINT = 'Command tidak dikenal. Kirim /help untuk daftar command.';
 
-const handlers: Record<string, () => string> = {
-  help: () => HELP,
-  start: () => HELP,
+const USAGE_SALDO_AWAL = 'Format: /saldo_awal <tunai|bank> <nominal>, contoh /saldo_awal tunai 200rb';
+
+function negativeWarning(negative: readonly Account[]): string {
+  return negative.length > 0 ? `Peringatan: saldo ${negative.join(' dan ')} negatif.` : '';
+}
+
+function saldoText(balances: Balances): string {
+  const lines = [
+    `Saldo tunai: ${formatAmount(balances.tunai)}`,
+    `Saldo bank: ${formatAmount(balances.bank)}`,
+    `Total: ${formatAmount(balances.tunai + balances.bank)}`,
+  ];
+  const warning = negativeWarning((['tunai', 'bank'] as const).filter((account) => balances[account] < 0));
+  if (warning) lines.push(warning);
+  return lines.join('\n');
+}
+
+async function setOpeningBalance(args: string, deps: Deps): Promise<string> {
+  const [account, ...rest] = args.trim().split(/\s+/);
+  const amount = parseAmount(rest.join(' '));
+  if (!isAccount(account) || amount === null) return USAGE_SALDO_AWAL;
+
+  const id = await deps.repo.setOpeningBalance(account, amount);
+  const balances = await deps.repo.getBalances();
+  const warning = balances[account] < 0 ? ` ${negativeWarning([account])}` : '';
+  return `Saldo awal ${account} ${formatAmount(amount)} dicatat. ID ${id}. Saldo ${account}: ${formatAmount(balances[account])}.${warning}`;
+}
+
+type Handler = (command: Command, deps: Deps) => Promise<string>;
+
+const handlers: Record<string, Handler> = {
+  help: async () => HELP,
+  start: async () => HELP,
+  saldo: async (_command, deps) => saldoText(await deps.repo.getBalances()),
+  saldo_awal: async (command, deps) => setOpeningBalance(command.args, deps),
 };
 
-export async function execute(command: Command | null, _deps: Deps): Promise<string> {
-  const handler = command ? handlers[command.name] : undefined;
-  return handler ? handler() : HINT;
+export async function execute(command: Command | null, deps: Deps): Promise<string> {
+  if (!command) return HINT;
+  const handler = handlers[command.name];
+  return handler ? handler(command, deps) : HINT;
 }

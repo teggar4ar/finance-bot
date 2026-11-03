@@ -3,7 +3,13 @@ import { parseCommand } from '../src/command';
 import type { Deps } from '../src/execute';
 import { HELP, HINT, execute } from '../src/execute';
 
-const deps: Deps = { now: () => new Date('2026-11-03T01:00:00Z') };
+const deps: Deps = {
+  now: () => new Date('2026-11-03T01:00:00Z'),
+  repo: {
+    setOpeningBalance: async () => 1,
+    getBalances: async () => ({ tunai: 0, bank: 0 }),
+  },
+};
 
 describe('execute', () => {
   it('/help dan /start memberi daftar command yang sama', async () => {
