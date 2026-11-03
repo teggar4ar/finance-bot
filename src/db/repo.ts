@@ -1,11 +1,34 @@
 import type { Pool, PoolClient } from 'pg';
-import type { Account, Balances, Repo } from '../repo';
+import type { Account, Balances, Repo, Transaction } from '../repo';
 
 /** `pg` mengembalikan BIGINT sebagai string (NFR-011). */
 function toSafeNumber(value: string): number {
   const amount = Number(value);
   if (!Number.isSafeInteger(amount)) throw new Error(`nilai di luar rentang aman: ${value}`);
   return amount;
+}
+
+interface TransactionRow {
+  id: string;
+  type: Transaction['type'];
+  account: Account;
+  to_account: Account | null;
+  amount: string;
+  description: string;
+}
+
+const TX_COLUMNS = 'id, type, account, to_account, amount, description';
+
+function toTransaction(row: TransactionRow): Transaction {
+  const base = {
+    id: toSafeNumber(row.id),
+    account: row.account,
+    amount: toSafeNumber(row.amount),
+    description: row.description,
+  };
+  if (row.type !== 'transfer') return { ...base, type: row.type, toAccount: null };
+  if (!row.to_account) throw new Error(`Transfer ${base.id} tanpa akun tujuan`);
+  return { ...base, type: 'transfer', toAccount: row.to_account };
 }
 
 const DISCARD_REDO_HISTORY =
@@ -73,6 +96,37 @@ export function createRepo(pool: Pool): Repo {
       const balances: Balances = { tunai: 0, bank: 0 };
       for (const row of rows) balances[row.account] = toSafeNumber(row.balance);
       return balances;
+    },
+
+    // Satu pernyataan = satu transaksi; tidak perlu `inTransaction` (NFR-013).
+    async undoLast() {
+      const { rows } = await pool.query<TransactionRow>(
+        `UPDATE transactions
+         SET undone_at = now()
+         WHERE id = (
+           SELECT id FROM transactions
+           WHERE undone_at IS NULL AND deleted_at IS NULL
+           ORDER BY id DESC
+           LIMIT 1
+         )
+         RETURNING ${TX_COLUMNS}`,
+      );
+      return rows[0] ? toTransaction(rows[0]) : null;
+    },
+
+    async redoLast() {
+      const { rows } = await pool.query<TransactionRow>(
+        `UPDATE transactions
+         SET undone_at = NULL
+         WHERE id = (
+           SELECT id FROM transactions
+           WHERE undone_at IS NOT NULL AND deleted_at IS NULL
+           ORDER BY id ASC
+           LIMIT 1
+         )
+         RETURNING ${TX_COLUMNS}`,
+      );
+      return rows[0] ? toTransaction(rows[0]) : null;
     },
   };
 }

@@ -22,6 +22,8 @@ function memoryRepo(initial: Balances = { tunai: 0, bank: 0 }): { repo: Repo; en
       setOpeningBalance: async () => nextId++,
       addExpenseOrIncome: async () => nextId++,
       getBalances: async () => ({ ...balances }),
+      undoLast: async () => null,
+      redoLast: async () => null,
       async addTransfer(from, to, amount, description) {
         entries.push({ from, to, amount, description });
         balances[from] -= amount;

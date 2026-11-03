@@ -89,19 +89,6 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
     expect(await repo.getBalances()).toEqual({ tunai: -25_000, bank: 5_000_000 });
   });
 
-  it('menulis Transaksi baru membuang seluruh Riwayat undo (FR-053)', async () => {
-    await repo.setOpeningBalance('tunai', 200_000);
-    // /undo belum ada (#6); status dibatalkan disiapkan langsung di sini.
-    await pool.query("UPDATE transactions SET undone_at = now() WHERE type = 'opening'");
-
-    await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
-
-    const { rows } = await pool.query<{ count: string }>(
-      'SELECT COUNT(*)::text AS count FROM transactions WHERE undone_at IS NOT NULL AND deleted_at IS NULL',
-    );
-    expect(rows[0]?.count).toBe('0');
-  });
-
   it('menyimpan Transfer sebagai satu baris dengan akun asal dan tujuan (FR-036, FR-037)', async () => {
     await repo.setOpeningBalance('tunai', 200_000);
     await repo.setOpeningBalance('bank', 5_000_000);
@@ -146,8 +133,7 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
 
   it('Transfer membuang seluruh Riwayat undo (FR-053)', async () => {
     await repo.setOpeningBalance('bank', 1_000_000);
-    // /undo belum ada (#6); status dibatalkan disiapkan langsung di sini.
-    await pool.query("UPDATE transactions SET undone_at = now() WHERE type = 'opening'");
+    await repo.undoLast();
 
     await repo.addTransfer('bank', 'tunai', 100_000, 'Transfer bank ke tunai');
 
@@ -155,5 +141,98 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
       'SELECT COUNT(*)::text AS count FROM transactions WHERE undone_at IS NOT NULL AND deleted_at IS NULL',
     );
     expect(rows[0]?.count).toBe('0');
+  });
+
+  it('undoLast membatalkan Transaksi aktif terakhir dan mengembalikan saldo (FR-050)', async () => {
+    await repo.setOpeningBalance('tunai', 200_000);
+    const id = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+
+    expect(await repo.undoLast()).toEqual({
+      id,
+      type: 'expense',
+      account: 'tunai',
+      toAccount: null,
+      amount: 25_000,
+      description: 'makan siang',
+    });
+    expect(await repo.getBalances()).toEqual({ tunai: 200_000, bank: 0 });
+
+    const { rows } = await pool.query<{ undone_at: Date | null }>('SELECT undone_at FROM transactions WHERE id = $1', [id]);
+    expect(rows[0]?.undone_at).toBeInstanceOf(Date);
+  });
+
+  it('undoLast berulang mundur ke Transaksi sebelumnya, terbaru lebih dulu (FR-051)', async () => {
+    await repo.setOpeningBalance('tunai', 200_000);
+    await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+    await repo.addExpenseOrIncome('tunai', 'expense', 5_000, 'parkir');
+
+    expect((await repo.undoLast())?.description).toBe('parkir');
+    expect((await repo.undoLast())?.description).toBe('makan siang');
+    expect((await repo.undoLast())?.type).toBe('opening');
+    expect(await repo.undoLast()).toBeNull();
+    expect(await repo.getBalances()).toEqual({ tunai: 0, bank: 0 });
+  });
+
+  it('redoLast memulihkan dengan urutan LIFO (FR-052)', async () => {
+    await repo.setOpeningBalance('tunai', 200_000);
+    await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+    await repo.addExpenseOrIncome('tunai', 'expense', 5_000, 'parkir');
+    await repo.undoLast();
+    await repo.undoLast();
+
+    expect((await repo.redoLast())?.description).toBe('makan siang');
+    expect((await repo.redoLast())?.description).toBe('parkir');
+    expect(await repo.redoLast()).toBeNull();
+    expect(await repo.getBalances()).toEqual({ tunai: 170_000, bank: 0 });
+  });
+
+  it('menulis Transaksi baru membuang seluruh Riwayat undo (FR-053)', async () => {
+    await repo.setOpeningBalance('tunai', 200_000);
+    await repo.addExpenseOrIncome('tunai', 'expense', 5_000, 'parkir');
+    await repo.undoLast();
+    await repo.undoLast();
+
+    await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+
+    expect(await repo.redoLast()).toBeNull();
+    const { rows } = await pool.query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM transactions WHERE undone_at IS NOT NULL AND deleted_at IS NOT NULL',
+    );
+    expect(rows[0]?.count).toBe('2');
+  });
+
+  it('undoLast berlaku untuk Transfer sebagai satu baris (FR-036, FR-050)', async () => {
+    await repo.setOpeningBalance('tunai', 200_000);
+    await repo.setOpeningBalance('bank', 5_000_000);
+    await repo.addTransfer('bank', 'tunai', 500_000, 'Transfer bank ke tunai');
+
+    expect(await repo.undoLast()).toEqual({
+      id: expect.any(Number),
+      type: 'transfer',
+      account: 'bank',
+      toAccount: 'tunai',
+      amount: 500_000,
+      description: 'Transfer bank ke tunai',
+    });
+    expect(await repo.getBalances()).toEqual({ tunai: 200_000, bank: 5_000_000 });
+  });
+
+  it('redoLast memulihkan Transfer sebagai satu baris (FR-036, FR-052)', async () => {
+    await repo.setOpeningBalance('tunai', 200_000);
+    await repo.setOpeningBalance('bank', 5_000_000);
+    await repo.addTransfer('bank', 'tunai', 500_000, 'Transfer bank ke tunai');
+    await repo.undoLast();
+
+    expect((await repo.redoLast())?.type).toBe('transfer');
+    expect(await repo.getBalances()).toEqual({ tunai: 700_000, bank: 4_500_000 });
+  });
+
+  it('redoLast memulihkan Saldo awal (FR-052)', async () => {
+    await repo.setOpeningBalance('tunai', 200_000);
+    await repo.undoLast();
+    expect(await repo.getBalances()).toEqual({ tunai: 0, bank: 0 });
+
+    expect((await repo.redoLast())?.type).toBe('opening');
+    expect(await repo.getBalances()).toEqual({ tunai: 200_000, bank: 0 });
   });
 });

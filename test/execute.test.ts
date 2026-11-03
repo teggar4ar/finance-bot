@@ -10,6 +10,8 @@ const deps: Deps = {
     addExpenseOrIncome: async () => 1,
     addTransfer: async () => 1,
     getBalances: async () => ({ tunai: 0, bank: 0 }),
+    undoLast: async () => null,
+    redoLast: async () => null,
   },
 };
 

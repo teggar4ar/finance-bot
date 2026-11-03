@@ -1,6 +1,6 @@
 import { formatAmount, parseAmount } from './amount';
 import type { Command } from './command';
-import type { Account, Balances, ExpenseOrIncome, Repo } from './repo';
+import type { Account, Balances, ExpenseOrIncome, Repo, Transaction } from './repo';
 import { isAccount } from './repo';
 
 /**
@@ -134,6 +134,28 @@ async function recordTransfer(args: string, deps: Deps): Promise<string> {
 
 type Handler = (command: Command, deps: Deps) => Promise<string>;
 
+/** FR-054: balasan menyebut Transaksi yang berubah dan saldo Akun yang terdampak. */
+function transactionLabel(transaction: Transaction): string {
+  const { type, account, amount, description } = transaction;
+  if (type === 'transfer') return `${description} ${formatAmount(amount)}`;
+  if (type === 'opening') return `Saldo awal ${account} ${formatAmount(amount)}`;
+  const label = type === 'expense' ? 'Pengeluaran' : 'Pemasukan';
+  return `${label} ${description} ${formatAmount(amount)} (${account})`;
+}
+
+async function undoOrRedo(action: 'undo' | 'redo', deps: Deps): Promise<string> {
+  const transaction = action === 'undo' ? await deps.repo.undoLast() : await deps.repo.redoLast();
+  if (!transaction) {
+    return action === 'undo' ? 'Tidak ada transaksi yang bisa dibatalkan.' : 'Tidak ada transaksi yang bisa dipulihkan.';
+  }
+
+  const accounts = transaction.type === 'transfer' ? [transaction.account, transaction.toAccount] : [transaction.account];
+  const balances = await deps.repo.getBalances();
+  const saldoSummary = accounts.map((account) => `Saldo ${account}: ${formatAmount(balances[account])}.`).join(' ');
+  const verb = action === 'undo' ? 'Dibatalkan' : 'Dipulihkan';
+  return `${verb}: ${transactionLabel(transaction)}, ID ${transaction.id}. ${saldoSummary}`;
+}
+
 /** ADR-0004: /k dan /m nama lain dari handler yang sudah ada, bukan jalur terpisah. */
 const ALIASES: Record<string, string> = { k: 'pengeluaran', m: 'pemasukan' };
 
@@ -145,6 +167,8 @@ const handlers: Record<string, Handler> = {
   pengeluaran: async (command, deps) => recordTransaction(command.args, 'expense', deps),
   pemasukan: async (command, deps) => recordTransaction(command.args, 'income', deps),
   transfer: async (command, deps) => recordTransfer(command.args, deps),
+  undo: async (_command, deps) => undoOrRedo('undo', deps),
+  redo: async (_command, deps) => undoOrRedo('redo', deps),
 };
 
 export async function execute(command: Command | null, deps: Deps): Promise<string> {

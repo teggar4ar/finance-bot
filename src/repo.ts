@@ -8,6 +8,19 @@ export interface Balances {
 
 export type ExpenseOrIncome = 'expense' | 'income';
 
+/** Satu baris Transaksi; dipakai /undo dan /redo untuk membalas apa yang berubah (FR-054). */
+interface TransactionBase {
+  id: number;
+  account: Account;
+  amount: number;
+  description: string;
+}
+
+/** `chk_tx_transfer` menjamin hanya Transfer punya akun tujuan (ADR-0002). */
+export type Transaction =
+  | (TransactionBase & { type: 'opening' | ExpenseOrIncome; toAccount: null })
+  | (TransactionBase & { type: 'transfer'; toAccount: Account });
+
 export interface Repo {
   /** Ganti Saldo awal akun, kembalikan ID transaksi baru (FR-011, FR-013). */
   setOpeningBalance(account: Account, amount: number): Promise<number>;
@@ -17,6 +30,10 @@ export interface Repo {
   addTransfer(from: Account, to: Account, amount: number, description: string): Promise<number>;
   /** Saldo aktif tiap Akun; akun tanpa transaksi = 0 (FR-020, FR-021). */
   getBalances(): Promise<Balances>;
+  /** Batalkan Transaksi aktif terakhir; `null` bila tidak ada (FR-050, FR-051). */
+  undoLast(): Promise<Transaction | null>;
+  /** Pulihkan Transaksi yang terakhir Dibatalkan (LIFO); `null` bila tidak ada (FR-052). */
+  redoLast(): Promise<Transaction | null>;
 }
 
 export function isAccount(value: string | undefined): value is Account {
