@@ -3,6 +3,7 @@ import { parseCommand } from '../src/command';
 import type { Deps } from '../src/execute';
 import { HINT, execute } from '../src/execute';
 import type { Account, Balances, Repo } from '../src/repo';
+import { fakeRepo } from './fake-repo';
 
 interface Recorded {
   account: Account;
@@ -18,7 +19,7 @@ function memoryRepo(initial: Balances = { tunai: 0, bank: 0 }): { repo: Repo; en
 
   return {
     entries,
-    repo: {
+    repo: fakeRepo({
       setOpeningBalance: async (account, amount) => {
         balances[account] = amount;
         return nextId++;
@@ -30,12 +31,7 @@ function memoryRepo(initial: Balances = { tunai: 0, bank: 0 }): { repo: Repo; en
         return nextId++;
       },
       addTransfer: async () => nextId++,
-      undoLast: async () => null,
-      redoLast: async () => null,
-      getHistory: async () => [],
-      editTransaction: async () => null,
-      deleteTransaction: async () => null,
-    },
+    }),
   };
 }
 

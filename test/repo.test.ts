@@ -339,4 +339,45 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
 
     expect((await repo.redoLast())?.id).toBe(undone);
   });
+
+  it('getSummary hanya menghitung Pengeluaran dan Pemasukan aktif (FR-074)', async () => {
+    await repo.setOpeningBalance('tunai', 200_000);
+    await repo.addTransfer('tunai', 'bank', 50_000, 'Transfer tunai ke bank');
+    const expense = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+    const income = await repo.addExpenseOrIncome('bank', 'income', 5_000_000, 'gaji');
+    await repo.addExpenseOrIncome('tunai', 'expense', 10_000, 'kopi');
+    await repo.undoLast();
+    const deleted = await repo.addExpenseOrIncome('tunai', 'expense', 5_000, 'parkir');
+    await repo.deleteTransaction(deleted);
+    await pool.query("UPDATE transactions SET occurred_at = '2020-01-15T03:00:00Z' WHERE id IN ($1, $2)", [
+      expense,
+      income,
+    ]);
+
+    expect(await repo.getSummary(new Date('2020-01-01T00:00:00Z'), new Date('2020-02-01T00:00:00Z'))).toEqual({
+      income: 5_000_000,
+      expense: 25_000,
+      txCount: 2,
+    });
+  });
+
+  it('getSummary memakai batas awal inklusif dan batas akhir eksklusif (FR-075)', async () => {
+    const start = '2026-11-02T17:00:00Z'; // 00:00 WIB 03/11
+    const end = '2026-11-03T17:00:00Z'; // 00:00 WIB 04/11
+    const atStart = await repo.addExpenseOrIncome('tunai', 'expense', 10_000, 'tepat awal');
+    const atEnd = await repo.addExpenseOrIncome('tunai', 'expense', 20_000, 'tepat akhir');
+    await pool.query('UPDATE transactions SET occurred_at = $2 WHERE id = $1', [atStart, start]);
+    await pool.query('UPDATE transactions SET occurred_at = $2 WHERE id = $1', [atEnd, end]);
+
+    expect(await repo.getSummary(new Date(start), new Date(end))).toEqual({
+      income: 0,
+      expense: 10_000,
+      txCount: 1,
+    });
+    expect(await repo.getSummary(new Date('2000-01-01T00:00:00Z'), new Date('2000-02-01T00:00:00Z'))).toEqual({
+      income: 0,
+      expense: 0,
+      txCount: 0,
+    });
+  });
 });

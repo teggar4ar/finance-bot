@@ -23,6 +23,13 @@ interface HistoryRow extends TransactionRow {
   occurred_at: Date;
 }
 
+/** `SUM` dan `COUNT` kembali sebagai string/integer dari `pg` (NFR-011). */
+interface SummaryRow {
+  income: string;
+  expense: string;
+  tx_count: number;
+}
+
 function toTransaction(row: TransactionRow): Transaction {
   const base = {
     id: toSafeNumber(row.id),
@@ -166,6 +173,22 @@ export function createRepo(pool: Pool): Repo {
         [id],
       );
       return rows[0] ? toTransaction(rows[0]) : null;
+    },
+
+    async getSummary(utcStart, utcEnd) {
+      const { rows } = await pool.query<SummaryRow>(
+        `SELECT
+           CAST(COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS BIGINT) AS income,
+           CAST(COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS BIGINT) AS expense,
+           CAST(COUNT(*) AS INTEGER) AS tx_count
+         FROM transactions
+         WHERE type IN ('expense', 'income')
+           AND undone_at IS NULL AND deleted_at IS NULL
+           AND occurred_at >= $1 AND occurred_at < $2`,
+        [utcStart, utcEnd],
+      );
+      const row = rows[0]!;
+      return { income: toSafeNumber(row.income), expense: toSafeNumber(row.expense), txCount: row.tx_count };
     },
   };
 }

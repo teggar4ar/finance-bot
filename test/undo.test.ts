@@ -3,21 +3,7 @@ import { parseCommand } from '../src/command';
 import type { Deps } from '../src/execute';
 import { execute } from '../src/execute';
 import type { Repo, Transaction } from '../src/repo';
-
-function fakeRepo(overrides: Partial<Repo> = {}): Repo {
-  return {
-    setOpeningBalance: async () => 1,
-    addExpenseOrIncome: async () => 1,
-    addTransfer: async () => 1,
-    getBalances: async () => ({ tunai: 0, bank: 0 }),
-    undoLast: async () => null,
-    redoLast: async () => null,
-    getHistory: async () => [],
-    editTransaction: async () => null,
-    deleteTransaction: async () => null,
-    ...overrides,
-  };
-}
+import { fakeRepo } from './fake-repo';
 
 const deps = (repo: Repo): Deps => ({ now: () => new Date('2026-11-03T01:00:00Z'), repo });
 const run = (text: string, repo: Repo): Promise<string> => execute(parseCommand(text), deps(repo));

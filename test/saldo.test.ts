@@ -3,6 +3,7 @@ import { parseCommand } from '../src/command';
 import type { Deps } from '../src/execute';
 import { execute } from '../src/execute';
 import type { Account, Balances, Repo } from '../src/repo';
+import { fakeRepo } from './fake-repo';
 
 function memoryRepo(initial: Balances = { tunai: 0, bank: 0 }): {
   repo: Repo;
@@ -16,22 +17,15 @@ function memoryRepo(initial: Balances = { tunai: 0, bank: 0 }): {
 
   return {
     openings,
-    repo: {
+    repo: fakeRepo({
       async setOpeningBalance(account, amount) {
         openings[account] = amount;
         return nextId++;
       },
-      addExpenseOrIncome: async () => 0,
-      addTransfer: async () => 0,
       async getBalances() {
         return { tunai: openings.tunai ?? 0, bank: openings.bank ?? 0 };
       },
-      undoLast: async () => null,
-      redoLast: async () => null,
-      getHistory: async () => [],
-      editTransaction: async () => null,
-      deleteTransaction: async () => null,
-    },
+    }),
   };
 }
 
@@ -92,17 +86,12 @@ describe('/saldo_awal', () => {
   });
 
   it('memunculkan peringatan bila saldo akun negatif setelah ditulis (FR-022)', async () => {
-    const repo: Repo = {
+    const repo = fakeRepo({
       setOpeningBalance: async () => 7,
       addExpenseOrIncome: async () => 7,
       addTransfer: async () => 7,
       getBalances: async () => ({ tunai: -1_000, bank: 0 }),
-      undoLast: async () => null,
-      redoLast: async () => null,
-      getHistory: async () => [],
-      editTransaction: async () => null,
-      deleteTransaction: async () => null,
-    };
+    });
     const text = await run('/saldo_awal tunai 200rb', repo);
 
     expect(text).toContain('ID 7');

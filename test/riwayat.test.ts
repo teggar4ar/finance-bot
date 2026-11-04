@@ -3,6 +3,7 @@ import { parseCommand } from '../src/command';
 import type { Deps } from '../src/execute';
 import { execute } from '../src/execute';
 import type { HistoryTransaction, Repo, Transaction } from '../src/repo';
+import { fakeRepo as baseRepo } from './fake-repo';
 
 interface Recorded {
   edited: { id: number; description: string; amount: number; account: string | null }[];
@@ -12,18 +13,7 @@ interface Recorded {
 function fakeRepo(overrides: Partial<Repo> = {}): { repo: Repo; recorded: Recorded } {
   const recorded: Recorded = { edited: [], deleted: [] };
 
-  const base: Repo = {
-    setOpeningBalance: async () => 1,
-    addExpenseOrIncome: async () => 1,
-    addTransfer: async () => 1,
-    getBalances: async () => ({ tunai: 0, bank: 0 }),
-    undoLast: async () => null,
-    redoLast: async () => null,
-    getHistory: async () => [],
-    editTransaction: async () => null,
-    deleteTransaction: async () => null,
-    ...overrides,
-  };
+  const base = baseRepo(overrides);
 
   const repo: Repo = {
     ...base,

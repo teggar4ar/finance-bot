@@ -42,8 +42,11 @@ const USAGE_PEMASUKAN =
 const USAGE_TRANSFER = 'Format: /transfer <dari> <ke> <nominal>, contoh /transfer bank tunai 500rb';
 const USAGE_EDIT = 'Format: /edit <id> <deskripsi> <nominal> [@bank|@tunai], contoh /edit 12 makan malam 30rb';
 const USAGE_HAPUS = 'Format: /hapus <id>, contoh /hapus 12';
+const USAGE_RINGKASAN =
+  'Format: /ringkasan <tanggal|bulan>, contoh /ringkasan 2026-10-15 atau /ringkasan 2026-10';
 
 const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+const WIB_DAY_MS = 24 * 60 * 60 * 1000;
 const HISTORY_LIMIT = 10;
 
 /** Nama jenis yang tampil ke pengguna; satu tempat supaya balasan tidak berbeda kata. */
@@ -168,10 +171,11 @@ function saldoSummary(accounts: readonly Account[], balances: Balances): string 
   return accounts.map((account) => `Saldo ${account}: ${formatAmount(balances[account])}.`).join(' ');
 }
 
+const pad = (value: number) => String(value).padStart(2, '0');
+
 /** `occurred_at` disimpan UTC; WIB selalu UTC+7 (CONTEXT.md). */
 function wibTimestamp(occurredAt: Date): string {
   const wib = new Date(occurredAt.getTime() + WIB_OFFSET_MS);
-  const pad = (value: number) => String(value).padStart(2, '0');
   return `${pad(wib.getUTCDate())}/${pad(wib.getUTCMonth() + 1)} ${pad(wib.getUTCHours())}:${pad(wib.getUTCMinutes())}`;
 }
 
@@ -190,6 +194,93 @@ async function history(deps: Deps): Promise<string> {
   const transactions = await deps.repo.getHistory(HISTORY_LIMIT);
   if (transactions.length === 0) return 'Belum ada transaksi.';
   return ['Riwayat transaksi terakhir:', ...transactions.map(historyLine)].join('\n');
+}
+
+interface Period {
+  label: string;
+  start: Date;
+  end: Date;
+}
+
+/** Tanggal kalender WIB dari satu instant (CONTEXT.md: WIB = UTC+7). */
+function wibDate(at: Date): { year: number; month: number; day: number } {
+  const wib = new Date(at.getTime() + WIB_OFFSET_MS);
+  return { year: wib.getUTCFullYear(), month: wib.getUTCMonth() + 1, day: wib.getUTCDate() };
+}
+
+/** Tengah malam UTC dari tanggal kalender WIB; `Date.UTC` menormalkan tanggal di luar bulan. */
+function wibDay(year: number, month: number, day: number): number {
+  return Date.UTC(year, month - 1, day);
+}
+
+function dayLabel(dayMs: number): string {
+  const date = new Date(dayMs);
+  return `${pad(date.getUTCDate())}/${pad(date.getUTCMonth() + 1)}/${date.getUTCFullYear()}`;
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/** Rentang UTC `[start, end)` untuk `days` hari WIB mulai `dayMs` (NFR-042). */
+function period(label: string, dayMs: number, days: number): Period {
+  return { label, start: new Date(dayMs - WIB_OFFSET_MS), end: new Date(dayMs + days * WIB_DAY_MS - WIB_OFFSET_MS) };
+}
+
+function todayPeriod(now: Date): Period {
+  const { year, month, day } = wibDate(now);
+  const dayMs = wibDay(year, month, day);
+  return period(`hari ini (${dayLabel(dayMs)})`, dayMs, 1);
+}
+
+/** FR-071: minggu Senin sampai Minggu WIB. */
+function weekPeriod(now: Date): Period {
+  const { year, month, day } = wibDate(now);
+  const today = wibDay(year, month, day);
+  const sinceMonday = (new Date(today).getUTCDay() + 6) % 7;
+  const start = today - sinceMonday * WIB_DAY_MS;
+  return period(`minggu ini (${dayLabel(start)} - ${dayLabel(start + 6 * WIB_DAY_MS)})`, start, 7);
+}
+
+function monthPeriod(label: string, year: number, month: number): Period {
+  return period(label, wibDay(year, month, 1), daysInMonth(year, month));
+}
+
+/** FR-072: bulan kalender WIB. */
+function thisMonthPeriod(now: Date): Period {
+  const { year, month } = wibDate(now);
+  return monthPeriod(`bulan ini (${pad(month)}/${year})`, year, month);
+}
+
+/** FR-073: hanya `YYYY-MM-DD` atau `YYYY-MM`; tanggal mustahil seperti 31 Februari ditolak. */
+function summaryPeriod(args: string): Period | null {
+  const match = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/.exec(args.trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  // Date.UTC memetakan tahun 0–99 ke 19xx, jadi tahun dua digit ditolak.
+  if (year < 100 || month < 1 || month > 12) return null;
+
+  if (match[3] === undefined) return monthPeriod(`${pad(month)}/${year}`, year, month);
+
+  const day = Number(match[3]);
+  const dayMs = wibDay(year, month, day);
+  const date = new Date(dayMs);
+  if (date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) return null;
+  return period(dayLabel(dayMs), dayMs, 1);
+}
+
+/** FR-070–FR-075: Net dihitung di sini, jumlah Transaksi datang dari query 6.5. */
+async function summary(target: Period | null, deps: Deps): Promise<string> {
+  if (!target) return USAGE_RINGKASAN;
+  const { income, expense, txCount } = await deps.repo.getSummary(target.start, target.end);
+  return [
+    `Ringkasan ${target.label}:`,
+    `Pemasukan: ${formatAmount(income)}`,
+    `Pengeluaran: ${formatAmount(expense)}`,
+    `Net: ${formatAmount(income - expense)}`,
+    `Transaksi: ${txCount}`,
+  ].join('\n');
 }
 
 /** ID dari pengguna; hanya bilangan bulat positif (FR-061, FR-062). */
@@ -247,6 +338,10 @@ const handlers: Record<string, Handler> = {
   riwayat: async (_command, deps) => history(deps),
   edit: async (command, deps) => editTransaction(command.args, deps),
   hapus: async (command, deps) => deleteTransaction(command.args, deps),
+  hari_ini: async (_command, deps) => summary(todayPeriod(deps.now()), deps),
+  minggu_ini: async (_command, deps) => summary(weekPeriod(deps.now()), deps),
+  bulan_ini: async (_command, deps) => summary(thisMonthPeriod(deps.now()), deps),
+  ringkasan: async (command, deps) => summary(summaryPeriod(command.args), deps),
 };
 
 export async function execute(command: Command | null, deps: Deps): Promise<string> {
