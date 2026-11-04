@@ -28,8 +28,13 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
     repo = createRepo(pool);
   });
 
+  /** Menaruh Transaksi pada jam tertentu tanpa bergantung jam dinding. */
+  async function setOccurredAt(id: number, iso: string): Promise<void> {
+    await pool.query('UPDATE transactions SET occurred_at = $2 WHERE id = $1', [id, iso]);
+  }
+
   beforeEach(async () => {
-    await pool.query('TRUNCATE transactions RESTART IDENTITY');
+    await pool.query('TRUNCATE transactions, budgets RESTART IDENTITY');
   });
 
   afterAll(async () => {
@@ -379,5 +384,57 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
       expense: 0,
       txCount: 0,
     });
+  });
+
+  it('setBudget menetapkan Budget mulai tanggal itu dan menimpa tanggal yang sama (FR-082, FR-083)', async () => {
+    await repo.setBudget(150_000, '2026-11-04');
+    expect(await repo.getBudgetFor('2026-11-04')).toBe(150_000);
+
+    await repo.setBudget(200_000, '2026-11-04');
+    expect(await repo.getBudgetFor('2026-11-04')).toBe(200_000);
+
+    const { rows } = await pool.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM budgets');
+    expect(rows[0]?.count).toBe('1');
+  });
+
+  it('getBudgetFor memakai Budget terakhir yang berlaku pada hari itu (FR-081, FR-083)', async () => {
+    expect(await repo.getBudgetFor('2026-11-04')).toBeNull();
+
+    await repo.setBudget(100_000, '2026-11-04');
+    await repo.setBudget(150_000, '2026-11-10');
+
+    expect(await repo.getBudgetFor('2026-11-03')).toBeNull();
+    expect(await repo.getBudgetFor('2026-11-04')).toBe(100_000);
+    expect(await repo.getBudgetFor('2026-11-09')).toBe(100_000);
+    expect(await repo.getBudgetFor('2026-11-10')).toBe(150_000);
+  });
+
+  it('getExpenseUsed hanya menghitung Pengeluaran aktif dalam rentang (FR-084, FR-087)', async () => {
+    const opening = await repo.setOpeningBalance('tunai', 1_000_000);
+    const transfer = await repo.addTransfer('tunai', 'bank', 50_000, 'Transfer tunai ke bank');
+    const income = await repo.addExpenseOrIncome('bank', 'income', 500_000, 'gaji');
+    const expense = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+    const atEnd = await repo.addExpenseOrIncome('tunai', 'expense', 10_000, 'parkir');
+
+    // Baris non-expense ditaruh di dalam rentang supaya yang diuji benar-benar pengecualian jenisnya.
+    for (const id of [opening, transfer, income]) await setOccurredAt(id, '2026-11-03T18:00:00Z');
+    await setOccurredAt(expense, '2026-11-03T17:00:00Z'); // batas awal inklusif
+    await setOccurredAt(atEnd, '2026-11-04T17:00:00Z'); // batas akhir eksklusif
+
+    const undone = await repo.addExpenseOrIncome('tunai', 'expense', 5_000, 'kopi');
+    await setOccurredAt(undone, '2026-11-03T19:00:00Z');
+    await repo.undoLast();
+
+    const deleted = await repo.addExpenseOrIncome('tunai', 'expense', 7_000, 'batal');
+    await setOccurredAt(deleted, '2026-11-03T20:00:00Z');
+    await repo.deleteTransaction(deleted);
+
+    const start = new Date('2026-11-03T17:00:00Z'); // 00:00 WIB 04/11
+    const end = new Date('2026-11-04T17:00:00Z'); // 00:00 WIB 05/11
+    expect(await repo.getExpenseUsed(start, end)).toBe(25_000);
+
+    // Edit langsung tercermin karena pemakaian selalu dihitung ulang dari Transaksi (FR-087).
+    await repo.editTransaction(expense, 'makan malam', 30_000, null);
+    expect(await repo.getExpenseUsed(start, end)).toBe(30_000);
   });
 });

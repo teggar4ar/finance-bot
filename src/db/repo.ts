@@ -190,5 +190,39 @@ export function createRepo(pool: Pool): Repo {
       const row = rows[0]!;
       return { income: toSafeNumber(row.income), expense: toSafeNumber(row.expense), txCount: row.tx_count };
     },
+
+    // Satu pernyataan = satu transaksi; tidak perlu `inTransaction` (NFR-013).
+    async setBudget(amount, wibDate) {
+      await pool.query(
+        `INSERT INTO budgets (amount, effective_from)
+         VALUES ($1, $2)
+         ON CONFLICT (effective_from) DO UPDATE SET amount = EXCLUDED.amount`,
+        [amount, wibDate],
+      );
+    },
+
+    async getBudgetFor(wibDate) {
+      const { rows } = await pool.query<{ amount: string }>(
+        `SELECT amount
+         FROM budgets
+         WHERE effective_from <= $1
+         ORDER BY effective_from DESC
+         LIMIT 1`,
+        [wibDate],
+      );
+      return rows[0] ? toSafeNumber(rows[0].amount) : null;
+    },
+
+    async getExpenseUsed(utcStart, utcEnd) {
+      const { rows } = await pool.query<{ used: string }>(
+        `SELECT CAST(COALESCE(SUM(amount), 0) AS BIGINT) AS used
+         FROM transactions
+         WHERE type = 'expense'
+           AND undone_at IS NULL AND deleted_at IS NULL
+           AND occurred_at >= $1 AND occurred_at < $2`,
+        [utcStart, utcEnd],
+      );
+      return toSafeNumber(rows[0]!.used);
+    },
   };
 }

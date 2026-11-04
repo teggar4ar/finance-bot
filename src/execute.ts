@@ -44,6 +44,10 @@ const USAGE_EDIT = 'Format: /edit <id> <deskripsi> <nominal> [@bank|@tunai], con
 const USAGE_HAPUS = 'Format: /hapus <id>, contoh /hapus 12';
 const USAGE_RINGKASAN =
   'Format: /ringkasan <tanggal|bulan>, contoh /ringkasan 2026-10-15 atau /ringkasan 2026-10';
+const USAGE_BUDGET = 'Format: /budget <nominal>, contoh /budget 150rb';
+
+/** FR-086, A2: ambang peringatan lembut, satu konstanta supaya mudah diubah. */
+const SOFT_WARNING_PERCENT = 80;
 
 const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
 const WIB_DAY_MS = 24 * 60 * 60 * 1000;
@@ -124,7 +128,11 @@ async function recordTransaction(args: string, type: ExpenseOrIncome, deps: Deps
   const balances = await deps.repo.getBalances();
   const label = TYPE_LABELS[type];
   const { amount, description } = transaction;
-  return `${label} ${description} ${formatAmount(amount)} (${account}) tercatat. ID ${id}. Saldo ${account}: ${formatAmount(balances[account])}.${balanceWarning([account], balances)}`;
+  const reply = `${label} ${description} ${formatAmount(amount)} (${account}) tercatat. ID ${id}. Saldo ${account}: ${formatAmount(balances[account])}.${balanceWarning([account], balances)}`;
+
+  if (type !== 'expense') return reply;
+  const usage = await budgetUsage(deps);
+  return usage ? `${reply}\n${budgetLine(usage)}` : reply;
 }
 
 /** FR-036: urutan argumen <from> <to> <amount>, tanpa deskripsi dari pengguna. */
@@ -213,6 +221,12 @@ function wibDay(year: number, month: number, day: number): number {
   return Date.UTC(year, month - 1, day);
 }
 
+/** Tanggal kalender WIB sebagai `YYYY-MM-DD`, bentuk `budgets.effective_from` (FR-083). */
+function wibIsoDay(at: Date): string {
+  const { year, month, day } = wibDate(at);
+  return `${year}-${pad(month)}-${pad(day)}`;
+}
+
 function dayLabel(dayMs: number): string {
   const date = new Date(dayMs);
   return `${pad(date.getUTCDate())}/${pad(date.getUTCMonth() + 1)}/${date.getUTCFullYear()}`;
@@ -283,6 +297,51 @@ async function summary(target: Period | null, deps: Deps): Promise<string> {
   ].join('\n');
 }
 
+interface BudgetUsage {
+  budget: number;
+  used: number;
+}
+
+/** FR-081/FR-084: pemakaian hari ini; `null` bila belum ada Budget (FR-088). */
+async function budgetUsage(deps: Deps): Promise<BudgetUsage | null> {
+  const now = deps.now();
+  const budget = await deps.repo.getBudgetFor(wibIsoDay(now));
+  if (budget === null) return null;
+  const today = todayPeriod(now);
+  return { budget, used: await deps.repo.getExpenseUsed(today.start, today.end) };
+}
+
+/** FR-085, FR-086: baris pemakaian di setiap konfirmasi Pengeluaran; tepat 100% masih lembut. */
+function budgetLine({ budget, used }: BudgetUsage): string {
+  const line = `Budget hari ini: ${formatAmount(used)} / ${formatAmount(budget)} (sisa ${formatAmount(budget - used)})`;
+  // Dibagi dulu supaya perkaliannya tidak melewati batas bilangan aman di Nominal besar.
+  if ((used / budget) * 100 < SOFT_WARNING_PERCENT) return line;
+
+  const percent = Math.floor((used / budget) * 100);
+  const over = used > budget ? ' — budget harian terlampaui' : '';
+  return `${line} Peringatan: pemakaian budget hari ini ${percent}%${over}.`;
+}
+
+/** FR-081/FR-082: tanpa argumen menampilkan, dengan Nominal menetapkan mulai hari ini. */
+async function dailyBudget(args: string, deps: Deps): Promise<string> {
+  if (!args.trim()) {
+    const usage = await budgetUsage(deps);
+    if (!usage) return 'Belum ada budget harian. Tetapkan dengan /budget 150rb.';
+    const left = usage.budget - usage.used;
+    return [
+      `Budget harian: ${formatAmount(usage.budget)}`,
+      `Pemakaian hari ini: ${formatAmount(usage.used)}`,
+      left < 0 ? `Kelebihan: ${formatAmount(-left)}` : `Sisa: ${formatAmount(left)}`,
+    ].join('\n');
+  }
+
+  const amount = parseAmount(args);
+  if (amount === null) return USAGE_BUDGET;
+  const now = deps.now();
+  await deps.repo.setBudget(amount, wibIsoDay(now));
+  return `Budget harian ${formatAmount(amount)} berlaku ${todayPeriod(now).label}.`;
+}
+
 /** ID dari pengguna; hanya bilangan bulat positif (FR-061, FR-062). */
 function parseId(token: string | undefined): number | null {
   if (!token || !/^\d+$/.test(token)) return null;
@@ -342,6 +401,7 @@ const handlers: Record<string, Handler> = {
   minggu_ini: async (_command, deps) => summary(weekPeriod(deps.now()), deps),
   bulan_ini: async (_command, deps) => summary(thisMonthPeriod(deps.now()), deps),
   ringkasan: async (command, deps) => summary(summaryPeriod(command.args), deps),
+  budget: async (command, deps) => dailyBudget(command.args, deps),
 };
 
 export async function execute(command: Command | null, deps: Deps): Promise<string> {

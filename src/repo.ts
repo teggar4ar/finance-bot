@@ -52,6 +52,12 @@ export interface Repo {
   deleteTransaction(id: number): Promise<Transaction | null>;
   /** Total Pemasukan/Pengeluaran aktif pada rentang UTC `[utcStart, utcEnd)` (FR-070–FR-075). */
   getSummary(utcStart: Date, utcEnd: Date): Promise<Summary>;
+  /** Tetapkan Budget harian mulai `wibDate` (`YYYY-MM-DD`); tanggal sama menimpa (FR-082, FR-083). */
+  setBudget(amount: number, wibDate: string): Promise<void>;
+  /** Budget yang berlaku pada `wibDate` (`YYYY-MM-DD`); `null` bila belum pernah ada (FR-081, FR-083). */
+  getBudgetFor(wibDate: string): Promise<number | null>;
+  /** Total Pengeluaran aktif pada rentang UTC `[utcStart, utcEnd)` (FR-084). */
+  getExpenseUsed(utcStart: Date, utcEnd: Date): Promise<number>;
 }
 
 export function isAccount(value: string | undefined): value is Account {

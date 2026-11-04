@@ -13,6 +13,9 @@ export function fakeRepo(overrides: Partial<Repo> = {}): Repo {
     editTransaction: async () => null,
     deleteTransaction: async () => null,
     getSummary: async () => ({ income: 0, expense: 0, txCount: 0 }),
+    setBudget: async () => {},
+    getBudgetFor: async () => null,
+    getExpenseUsed: async () => 0,
     ...overrides,
   };
 }
