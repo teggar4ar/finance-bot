@@ -1,4 +1,4 @@
-import { Bot } from 'grammy';
+import { Bot, InputFile } from 'grammy';
 import { parseCommand } from './command';
 import type { Deps } from './execute';
 import { execute } from './execute';
@@ -28,7 +28,13 @@ export function createBot(token: string, allowedUserId: number, deps: Deps): Bot
     log('info', 'command', { cmd });
 
     try {
-      await ctx.reply(await execute(command, deps));
+      const reply = await execute(command, deps);
+      if (typeof reply === 'string') {
+        await ctx.reply(reply);
+      } else {
+        const file = new InputFile(Buffer.from(reply.content, 'utf8'), reply.filename);
+        await ctx.replyWithDocument(file, { caption: reply.caption });
+      }
     } catch (error) {
       log('error', 'command_failed', { cmd, error: describeError(error, token) });
       await ctx.reply('Terjadi kesalahan saat memproses command. Coba lagi.');

@@ -34,8 +34,8 @@ function fakeRepo(budget: number | null, used: number, overrides: Partial<Repo> 
   return { repo, sets, ranges };
 }
 
-const run = (text: string, repo: Repo, now = NOW): Promise<string> =>
-  execute(parseCommand(text), { now: () => new Date(now), repo });
+const run = async (text: string, repo: Repo, now = NOW): Promise<string> =>
+  (await execute(parseCommand(text), { now: () => new Date(now), repo })) as string;
 
 describe('/budget', () => {
   it('menjelaskan bila belum ada Budget, tanpa error (FR-081, FR-088)', async () => {

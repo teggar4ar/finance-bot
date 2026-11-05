@@ -437,4 +437,105 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
     await repo.editTransaction(expense, 'makan malam', 30_000, null);
     expect(await repo.getExpenseUsed(start, end)).toBe(30_000);
   });
+
+  it('getLedger menghitung saldo berjalan per akun dan total, Saldo awal lebih dulu (FR-092, FR-093, FR-095)', async () => {
+    const openingTunai = await repo.setOpeningBalance('tunai', 200_000);
+    const openingBank = await repo.setOpeningBalance('bank', 1_000_000);
+    const transfer = await repo.addTransfer('bank', 'tunai', 250_000, 'Transfer bank ke tunai');
+    const expense = await repo.addExpenseOrIncome('tunai', 'expense', 50_000, 'makan siang');
+    // Saldo awal ditetapkan paling akhir tapi harus tampil lebih dulu (ADR-0003).
+    await setOccurredAt(openingTunai, '2026-11-05T02:00:00Z');
+    await setOccurredAt(openingBank, '2026-11-05T03:00:00Z');
+    await setOccurredAt(transfer, '2026-11-01T02:00:00Z');
+    await setOccurredAt(expense, '2026-11-02T02:00:00Z');
+
+    const ledger = await repo.getLedger(null, null);
+
+    expect(ledger.map((row) => [row.id, row.account, row.moneyIn, row.moneyOut, row.accountBalance, row.totalBalance])).toEqual([
+      [openingTunai, 'tunai', 200_000, 0, 200_000, 200_000],
+      [openingBank, 'bank', 1_000_000, 0, 1_000_000, 1_200_000],
+      [transfer, 'bank', 0, 250_000, 750_000, 1_200_000],
+      [transfer, 'tunai', 250_000, 0, 450_000, 1_200_000],
+      [expense, 'tunai', 0, 50_000, 400_000, 1_150_000],
+    ]);
+    expect(ledger[0]?.occurredAt).toBeInstanceOf(Date);
+  });
+
+  it('getLedger bulanan hanya rentang itu, saldo berjalan tetap menyambung riwayat (FR-091)', async () => {
+    const opening = await repo.setOpeningBalance('tunai', 200_000);
+    const october = await repo.addExpenseOrIncome('tunai', 'expense', 50_000, 'oktober');
+    const november = await repo.addExpenseOrIncome('tunai', 'income', 100_000, 'gaji');
+    await setOccurredAt(opening, '2026-10-05T02:00:00Z');
+    await setOccurredAt(october, '2026-10-20T02:00:00Z');
+    await setOccurredAt(november, '2026-11-10T02:00:00Z');
+
+    const start = new Date('2026-10-31T17:00:00Z'); // 00:00 WIB 01/11
+    const end = new Date('2026-11-30T17:00:00Z'); // 00:00 WIB 01/12
+    expect(await repo.getLedger(start, end)).toEqual([
+      expect.objectContaining({ id: november, accountBalance: 250_000, totalBalance: 250_000, moneyIn: 100_000 }),
+    ]);
+  });
+
+  it('getCarryIn hanya menjumlahkan Baris sebelum rentang dan melewatkan yang non-aktif (FR-096, FR-097)', async () => {
+    const opening = await repo.setOpeningBalance('tunai', 200_000);
+    const undone = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'kopi');
+    await repo.undoLast();
+    const deleted = await repo.addExpenseOrIncome('tunai', 'expense', 5_000, 'parkir');
+    await repo.deleteTransaction(deleted);
+    await setOccurredAt(opening, '2026-10-05T02:00:00Z');
+    await setOccurredAt(undone, '2026-10-06T02:00:00Z');
+    await setOccurredAt(deleted, '2026-10-07T02:00:00Z');
+
+    const start = new Date('2026-10-31T17:00:00Z');
+    expect(await repo.getCarryIn(start)).toEqual([{ account: 'tunai', balance: 200_000 }]);
+
+    const future = new Date('2026-11-30T17:00:00Z');
+    expect(await repo.getCarryIn(future)).toEqual([{ account: 'tunai', balance: 200_000 }]);
+
+    // Saldo awal adalah baris nol, jadi ia ikut walau periode yang diekspor lebih awal (FR-095).
+    const earlier = new Date('2026-10-01T00:00:00Z');
+    expect(await repo.getCarryIn(earlier)).toEqual([{ account: 'tunai', balance: 200_000 }]);
+  });
+
+  it('getCarryIn kosong bila belum ada Saldo awal maupun Transaksi lama (FR-097)', async () => {
+    expect(await repo.getCarryIn(new Date('2026-10-01T00:00:00Z'))).toEqual([]);
+  });
+
+  it('Saldo awal dalam bulan export jadi Baris pembuka periode, bukan baris biasa (FR-095, FR-097)', async () => {
+    const opening = await repo.setOpeningBalance('tunai', 200_000);
+    const expense = await repo.addExpenseOrIncome('tunai', 'expense', 50_000, 'setelah saldo awal');
+    await setOccurredAt(opening, '2026-11-05T02:00:00Z');
+    await setOccurredAt(expense, '2026-11-10T02:00:00Z');
+
+    const start = new Date('2026-10-31T17:00:00Z');
+    const end = new Date('2026-11-30T17:00:00Z');
+    expect(await repo.getCarryIn(start)).toEqual([{ account: 'tunai', balance: 200_000 }]);
+    expect(await repo.getLedger(start, end)).toEqual([
+      expect.objectContaining({ id: expense, moneyOut: 50_000, accountBalance: 150_000, totalBalance: 150_000 }),
+    ]);
+  });
+
+  it('Saldo awal yang ditetapkan setelah bulan export tetap terbawa sebagai Baris pembuka periode (FR-095, FR-097)', async () => {
+    const opening = await repo.setOpeningBalance('tunai', 200_000);
+    const expense = await repo.addExpenseOrIncome('tunai', 'expense', 50_000, 'oktober');
+    await setOccurredAt(opening, '2026-11-20T02:00:00Z'); // ditetapkan setelah bulan yang diekspor
+    await setOccurredAt(expense, '2026-10-20T02:00:00Z');
+
+    const start = new Date('2026-09-30T17:00:00Z');
+    const end = new Date('2026-10-31T17:00:00Z');
+    expect(await repo.getCarryIn(start)).toEqual([{ account: 'tunai', balance: 200_000 }]);
+    expect(await repo.getLedger(start, end)).toEqual([
+      expect.objectContaining({ id: expense, accountBalance: 150_000, totalBalance: 150_000 }),
+    ]);
+  });
+
+  it('getLedger melewatkan Transaksi Dibatalkan dan Dihapus (FR-096)', async () => {
+    const kept = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+    await repo.addExpenseOrIncome('tunai', 'expense', 5_000, 'kopi');
+    await repo.undoLast();
+    const deleted = await repo.addExpenseOrIncome('tunai', 'expense', 7_000, 'batal');
+    await repo.deleteTransaction(deleted);
+
+    expect((await repo.getLedger(null, null)).map((row) => row.id)).toEqual([kept]);
+  });
 });

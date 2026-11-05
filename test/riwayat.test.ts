@@ -31,7 +31,8 @@ function fakeRepo(overrides: Partial<Repo> = {}): { repo: Repo; recorded: Record
 }
 
 const deps = (repo: Repo): Deps => ({ now: () => new Date('2026-11-03T01:00:00Z'), repo });
-const run = (text: string, repo: Repo): Promise<string> => execute(parseCommand(text), deps(repo));
+const run = async (text: string, repo: Repo): Promise<string> =>
+  (await execute(parseCommand(text), deps(repo))) as string;
 
 const expense: HistoryTransaction = {
   id: 12,

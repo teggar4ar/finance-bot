@@ -396,7 +396,8 @@ WITH running AS (
   -- the full ledger query from above
 )
 SELECT * FROM running
-WHERE occurred_at >= $1 AND occurred_at < $2
+-- Opening rows are folded into the carry-in rows below, so skip them here (FR-095, FR-097).
+WHERE type <> 'opening' AND occurred_at >= $1 AND occurred_at < $2
 ORDER BY (type = 'opening') DESC, occurred_at, id, leg;
 ```
 
@@ -406,11 +407,12 @@ Then build the carry-in rows (accumulated balance before the month):
 SELECT account,
        CAST(SUM(money_in - money_out) AS BIGINT) AS balance
 FROM ledger_entries
-WHERE occurred_at < $1
+-- An opening balance is row zero: count it even when declared inside or after the month (FR-095).
+WHERE type = 'opening' OR occurred_at < $1
 GROUP BY account;
 ```
 
-For each returned account, the application prepends one synthetic row to the CSV: type `opening`, description such as `Saldo awal periode`, a positive balance in `money_in` (a negative balance goes in `money_out` as its absolute value), an empty `id`, and `account_balance` and `total_balance` set from these carry-in values. If no entries exist before the month, no carry-in rows are added.
+For each returned account, the application prepends one synthetic row to the CSV: type `opening`, description such as `Saldo awal periode`, a positive balance in `money_in` (a negative balance goes in `money_out` as its absolute value), an empty `id`, and `account_balance` and `total_balance` set from these carry-in values. If no entries exist before the month and the account has no opening balance, no carry-in rows are added.
 
 ---
 
@@ -430,7 +432,7 @@ All SQL lives in one repository module (NFR-051). Suggested functions:
 | `getHistory(limit)` | 6.4 |
 | `getSummary(utcStart, utcEnd)` | 6.5 |
 | `setBudget(amount, wibDate)`, `getBudgetFor(wibDate)`, `getExpenseUsed(utcStart, utcEnd)` | 6.6 |
-| `getLedgerWithBalances()`, `getLedgerForMonth(utcStart, utcEnd)`, `getCarryInBalances(utcStart)` | 6.7 |
+| `getLedger(utcStart, utcEnd)` (null = seluruh riwayat), `getCarryIn(utcStart)` | 6.7 |
 
 ---
 

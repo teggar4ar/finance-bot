@@ -30,7 +30,8 @@ function memoryRepo(initial: Balances = { tunai: 0, bank: 0 }): {
 }
 
 const deps = (repo: Repo): Deps => ({ now: () => new Date('2026-11-03T01:00:00Z'), repo });
-const run = (text: string, repo: Repo): Promise<string> => execute(parseCommand(text), deps(repo));
+const run = async (text: string, repo: Repo): Promise<string> =>
+  (await execute(parseCommand(text), deps(repo))) as string;
 
 describe('/saldo', () => {
   it('menampilkan tunai, bank, dan total; akun kosong dianggap 0 (FR-020)', async () => {

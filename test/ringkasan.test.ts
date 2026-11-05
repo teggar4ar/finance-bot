@@ -23,7 +23,8 @@ function fakeRepo(overrides: Partial<Repo> = {}): { repo: Repo; ranges: Range[] 
 }
 
 const deps = (repo: Repo, now = '2026-11-04T02:00:00Z'): Deps => ({ now: () => new Date(now), repo });
-const run = (text: string, repo: Repo, now?: string): Promise<string> => execute(parseCommand(text), deps(repo, now));
+const run = async (text: string, repo: Repo, now?: string): Promise<string> =>
+  (await execute(parseCommand(text), deps(repo, now))) as string;
 
 describe('/hari_ini', () => {
   it('memakai batas hari WIB sebagai rentang UTC (FR-070, FR-075)', async () => {

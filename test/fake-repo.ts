@@ -16,6 +16,8 @@ export function fakeRepo(overrides: Partial<Repo> = {}): Repo {
     setBudget: async () => {},
     getBudgetFor: async () => null,
     getExpenseUsed: async () => 0,
+    getLedger: async () => [],
+    getCarryIn: async () => [],
     ...overrides,
   };
 }

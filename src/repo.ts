@@ -31,6 +31,25 @@ export interface Summary {
   txCount: number;
 }
 
+/** Satu Baris ledger siap ekspor; saldo berjalan sudah dihitung query (FR-092, FR-093). */
+export interface LedgerEntry {
+  id: number;
+  occurredAt: Date;
+  account: Account;
+  type: 'opening' | 'expense' | 'income' | 'transfer';
+  description: string;
+  moneyIn: number;
+  moneyOut: number;
+  accountBalance: number;
+  totalBalance: number;
+}
+
+/** Saldo akumulasi satu Akun sebelum periode export (FR-097). */
+export interface CarryIn {
+  account: Account;
+  balance: number;
+}
+
 export interface Repo {
   /** Ganti Saldo awal akun, kembalikan ID transaksi baru (FR-011, FR-013). */
   setOpeningBalance(account: Account, amount: number): Promise<number>;
@@ -58,6 +77,10 @@ export interface Repo {
   getBudgetFor(wibDate: string): Promise<number | null>;
   /** Total Pengeluaran aktif pada rentang UTC `[utcStart, utcEnd)` (FR-084). */
   getExpenseUsed(utcStart: Date, utcEnd: Date): Promise<number>;
+  /** Baris ledger aktif dengan saldo berjalan; `null` = seluruh riwayat (FR-090, FR-091). */
+  getLedger(utcStart: Date | null, utcEnd: Date | null): Promise<LedgerEntry[]>;
+  /** Saldo tiap Akun sebelum `utcStart`; Akun tanpa Baris ledger tidak muncul (FR-097). */
+  getCarryIn(utcStart: Date): Promise<CarryIn[]>;
 }
 
 export function isAccount(value: string | undefined): value is Account {

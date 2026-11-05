@@ -1,16 +1,22 @@
 import { formatAmount, parseAmount } from './amount';
 import type { Command } from './command';
+import type { CsvFile } from './csv';
+import { buildCsv } from './csv';
 import type { Account, Balances, ExpenseOrIncome, HistoryTransaction, Repo, Transaction } from './repo';
 import { isAccount } from './repo';
+import { WIB_DAY_MS, WIB_OFFSET_MS, dayLabel, daysInMonth, pad, wibDate, wibDay, wibIsoDay, wibTimestamp } from './wib';
 
 /**
- * Seam perilaku: Telegram → `execute` → teks balasan.
+ * Seam perilaku: Telegram → `execute` → balasan.
+ * Hampir semua command menghasilkan teks; `/export` menghasilkan file CSV.
  * `deps` diisi dari luar supaya bisa diganti fake di tes.
  */
 export interface Deps {
   now: () => Date;
   repo: Repo;
 }
+
+export type Reply = string | CsvFile;
 
 export const HELP = [
   'Command yang tersedia:',
@@ -45,12 +51,11 @@ const USAGE_HAPUS = 'Format: /hapus <id>, contoh /hapus 12';
 const USAGE_RINGKASAN =
   'Format: /ringkasan <tanggal|bulan>, contoh /ringkasan 2026-10-15 atau /ringkasan 2026-10';
 const USAGE_BUDGET = 'Format: /budget <nominal>, contoh /budget 150rb';
+const USAGE_EXPORT = 'Format: /export atau /export 2026-10, contoh /export 2026-10';
 
 /** FR-086, A2: ambang peringatan lembut, satu konstanta supaya mudah diubah. */
 const SOFT_WARNING_PERCENT = 80;
 
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
-const WIB_DAY_MS = 24 * 60 * 60 * 1000;
 const HISTORY_LIMIT = 10;
 
 /** Nama jenis yang tampil ke pengguna; satu tempat supaya balasan tidak berbeda kata. */
@@ -148,7 +153,7 @@ async function recordTransfer(args: string, deps: Deps): Promise<string> {
   return `${description} ${formatAmount(amount)} tercatat. ID ${id}. Saldo ${from}: ${formatAmount(balances[from])}. Saldo ${to}: ${formatAmount(balances[to])}.${balanceWarning([from, to], balances)}`;
 }
 
-type Handler = (command: Command, deps: Deps) => Promise<string>;
+type Handler = (command: Command, deps: Deps) => Promise<Reply>;
 
 /** FR-054: balasan menyebut Transaksi yang berubah dan saldo Akun yang terdampak. */
 function transactionLabel(transaction: Transaction): string {
@@ -179,14 +184,6 @@ function saldoSummary(accounts: readonly Account[], balances: Balances): string 
   return accounts.map((account) => `Saldo ${account}: ${formatAmount(balances[account])}.`).join(' ');
 }
 
-const pad = (value: number) => String(value).padStart(2, '0');
-
-/** `occurred_at` disimpan UTC; WIB selalu UTC+7 (CONTEXT.md). */
-function wibTimestamp(occurredAt: Date): string {
-  const wib = new Date(occurredAt.getTime() + WIB_OFFSET_MS);
-  return `${pad(wib.getUTCDate())}/${pad(wib.getUTCMonth() + 1)} ${pad(wib.getUTCHours())}:${pad(wib.getUTCMinutes())}`;
-}
-
 /** FR-060: Transfer tampil `bank -> tunai`, Saldo awal tampil `saldo awal`. */
 function historyLine(transaction: HistoryTransaction): string {
   const head = `#${transaction.id} ${wibTimestamp(transaction.occurredAt)}`;
@@ -208,32 +205,6 @@ interface Period {
   label: string;
   start: Date;
   end: Date;
-}
-
-/** Tanggal kalender WIB dari satu instant (CONTEXT.md: WIB = UTC+7). */
-function wibDate(at: Date): { year: number; month: number; day: number } {
-  const wib = new Date(at.getTime() + WIB_OFFSET_MS);
-  return { year: wib.getUTCFullYear(), month: wib.getUTCMonth() + 1, day: wib.getUTCDate() };
-}
-
-/** Tengah malam UTC dari tanggal kalender WIB; `Date.UTC` menormalkan tanggal di luar bulan. */
-function wibDay(year: number, month: number, day: number): number {
-  return Date.UTC(year, month - 1, day);
-}
-
-/** Tanggal kalender WIB sebagai `YYYY-MM-DD`, bentuk `budgets.effective_from` (FR-083). */
-function wibIsoDay(at: Date): string {
-  const { year, month, day } = wibDate(at);
-  return `${year}-${pad(month)}-${pad(day)}`;
-}
-
-function dayLabel(dayMs: number): string {
-  const date = new Date(dayMs);
-  return `${pad(date.getUTCDate())}/${pad(date.getUTCMonth() + 1)}/${date.getUTCFullYear()}`;
-}
-
-function daysInMonth(year: number, month: number): number {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
 /** Rentang UTC `[start, end)` untuk `days` hari WIB mulai `dayMs` (NFR-042). */
@@ -342,6 +313,24 @@ async function dailyBudget(args: string, deps: Deps): Promise<string> {
   return `Budget harian ${formatAmount(amount)} berlaku ${todayPeriod(now).label}.`;
 }
 
+/** FR-090/FR-091: tanpa argumen seluruh data, `YYYY-MM` satu bulan. */
+async function exportCsv(args: string, deps: Deps): Promise<CsvFile | string> {
+  const arg = args.trim();
+  if (!arg) return buildCsv(await deps.repo.getLedger(null, null));
+
+  const match = /^(\d{4})-(\d{2})$/.exec(arg);
+  if (!match) return USAGE_EXPORT;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  // Date.UTC memetakan tahun 0–99 ke 19xx, sama seperti summaryPeriod.
+  if (year < 100 || month < 1 || month > 12) return USAGE_EXPORT;
+
+  const target = monthPeriod(`${pad(month)}/${year}`, year, month);
+  const entries = await deps.repo.getLedger(target.start, target.end);
+  const carryIn = await deps.repo.getCarryIn(target.start);
+  return buildCsv(entries, carryIn, target.start);
+}
+
 /** ID dari pengguna; hanya bilangan bulat positif (FR-061, FR-062). */
 function parseId(token: string | undefined): number | null {
   if (!token || !/^\d+$/.test(token)) return null;
@@ -402,9 +391,10 @@ const handlers: Record<string, Handler> = {
   bulan_ini: async (_command, deps) => summary(thisMonthPeriod(deps.now()), deps),
   ringkasan: async (command, deps) => summary(summaryPeriod(command.args), deps),
   budget: async (command, deps) => dailyBudget(command.args, deps),
+  export: async (command, deps) => exportCsv(command.args, deps),
 };
 
-export async function execute(command: Command | null, deps: Deps): Promise<string> {
+export async function execute(command: Command | null, deps: Deps): Promise<Reply> {
   if (!command) return HINT;
   const handler = handlers[ALIASES[command.name] ?? command.name];
   return handler ? handler(command, deps) : HINT;

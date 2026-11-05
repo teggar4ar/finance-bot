@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
-import type { Account, Balances, HistoryTransaction, Repo, Transaction } from '../repo';
+import type { Account, Balances, HistoryTransaction, LedgerEntry, Repo, Transaction } from '../repo';
 
 /** `pg` mengembalikan BIGINT sebagai string (NFR-011). */
 function toSafeNumber(value: string): number {
@@ -28,6 +28,32 @@ interface SummaryRow {
   income: string;
   expense: string;
   tx_count: number;
+}
+
+interface LedgerRow {
+  id: string;
+  occurred_at: Date;
+  account: Account;
+  type: LedgerEntry['type'];
+  description: string;
+  money_in: string;
+  money_out: string;
+  account_balance: string;
+  total_balance: string;
+}
+
+function toLedgerEntry(row: LedgerRow): LedgerEntry {
+  return {
+    id: toSafeNumber(row.id),
+    occurredAt: row.occurred_at,
+    account: row.account,
+    type: row.type,
+    description: row.description,
+    moneyIn: toSafeNumber(row.money_in),
+    moneyOut: toSafeNumber(row.money_out),
+    accountBalance: toSafeNumber(row.account_balance),
+    totalBalance: toSafeNumber(row.total_balance),
+  };
 }
 
 function toTransaction(row: TransactionRow): Transaction {
@@ -223,6 +249,44 @@ export function createRepo(pool: Pool): Repo {
         [utcStart, utcEnd],
       );
       return toSafeNumber(rows[0]!.used);
+    },
+
+    async getLedger(utcStart, utcEnd) {
+      const { rows } = await pool.query<LedgerRow>(
+        `WITH running AS (
+           SELECT id, occurred_at, account, type, description, money_in, money_out, leg,
+             CAST(SUM(money_in - money_out) OVER (
+               PARTITION BY account
+               ORDER BY (type = 'opening') DESC, occurred_at, id
+               ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+             ) AS BIGINT) AS account_balance,
+             CAST(SUM(money_in - money_out) OVER (
+               ORDER BY (type = 'opening') DESC, occurred_at, id
+               RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+             ) AS BIGINT) AS total_balance
+           FROM ledger_entries
+         )
+         SELECT id, occurred_at, account, type, description, money_in, money_out, account_balance, total_balance
+         FROM running
+         -- Export bulanan: Saldo awal diwakili Baris pembuka periode, jangan digandakan (FR-095, FR-097).
+         WHERE ($1::timestamptz IS NULL OR (type <> 'opening' AND occurred_at >= $1::timestamptz))
+           AND ($2::timestamptz IS NULL OR occurred_at < $2::timestamptz)
+         ORDER BY (type = 'opening') DESC, occurred_at, id, leg`,
+        [utcStart, utcEnd],
+      );
+      return rows.map(toLedgerEntry);
+    },
+
+    async getCarryIn(utcStart) {
+      const { rows } = await pool.query<{ account: Account; balance: string }>(
+        // Saldo awal adalah baris nol: ikut terhitung walau ditetapkan setelah periode (FR-095, FR-097).
+        `SELECT account, CAST(SUM(money_in - money_out) AS BIGINT) AS balance
+         FROM ledger_entries
+         WHERE type = 'opening' OR occurred_at < $1
+         GROUP BY account`,
+        [utcStart],
+      );
+      return rows.map((row) => ({ account: row.account, balance: toSafeNumber(row.balance) }));
     },
   };
 }
