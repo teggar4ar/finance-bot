@@ -50,6 +50,18 @@ export interface CarryIn {
   balance: number;
 }
 
+/** Satu Pengeluaran aktif; dipakai untuk bucket harian (FR-076). */
+export interface ExpenseRow {
+  occurredAt: Date;
+  amount: number;
+}
+
+/** Satu Budget dan tanggal berlakunya (`YYYY-MM-DD`), untuk hari melewati budget (FR-076). */
+export interface BudgetRow {
+  effectiveFrom: string;
+  amount: number;
+}
+
 export interface Repo {
   /** Ganti Saldo awal akun, kembalikan ID transaksi baru (FR-011, FR-013). */
   setOpeningBalance(account: Account, amount: number): Promise<number>;
@@ -77,6 +89,10 @@ export interface Repo {
   getBudgetFor(wibDate: string): Promise<number | null>;
   /** Total Pengeluaran aktif pada rentang UTC `[utcStart, utcEnd)` (FR-084). */
   getExpenseUsed(utcStart: Date, utcEnd: Date): Promise<number>;
+  /** Pengeluaran aktif pada rentang UTC `[utcStart, utcEnd)` (FR-076). */
+  getExpensesInRange(utcStart: Date, utcEnd: Date): Promise<ExpenseRow[]>;
+  /** Budget yang berlaku sampai `wibDate` (`YYYY-MM-DD`), terlama dulu; kosong bila belum ada (FR-076). */
+  getBudgetsUpTo(wibDate: string): Promise<BudgetRow[]>;
   /** Baris ledger aktif dengan saldo berjalan; `null` = seluruh riwayat (FR-090, FR-091). */
   getLedger(utcStart: Date | null, utcEnd: Date | null): Promise<LedgerEntry[]>;
   /** Saldo tiap Akun sebelum `utcStart`; Akun tanpa Baris ledger tidak muncul (FR-097). */

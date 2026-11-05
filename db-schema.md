@@ -358,6 +358,20 @@ WHERE type = 'expense'
 The application compares `used` with the budget and applies the warning rules: at least 80% gives a soft warning, above 100% a strong warning (FR-086). Because usage is always recomputed from transactions, undo, redo, edit, and delete are reflected automatically (FR-087).
 
 **Days over budget in a month (FR-076).** Fetch the month's active expense rows and the budget rows up to the month's end, then bucket by WIB day and compare in application code. This avoids timezone functions in SQL and is trivial at this data size.
+```sql
+SELECT occurred_at, amount
+FROM transactions
+WHERE type = 'expense'
+  AND undone_at IS NULL AND deleted_at IS NULL
+  AND occurred_at >= $1 AND occurred_at < $2;   -- UTC range of the month
+```
+```sql
+SELECT to_char(effective_from, 'YYYY-MM-DD') AS effective_from, amount
+FROM budgets
+WHERE effective_from <= $1                      -- $1 = last WIB date of the month
+ORDER BY effective_from;
+```
+`to_char` keeps the `YYYY-MM-DD` shape the application compares against regardless of the session's `DateStyle`. A day counts only when a budget was in effect on it and that day's expenses exceed it; with no budget rows the line is omitted.
 
 ### 6.7 CSV export (FR-090 to FR-099)
 
@@ -432,6 +446,7 @@ All SQL lives in one repository module (NFR-051). Suggested functions:
 | `getHistory(limit)` | 6.4 |
 | `getSummary(utcStart, utcEnd)` | 6.5 |
 | `setBudget(amount, wibDate)`, `getBudgetFor(wibDate)`, `getExpenseUsed(utcStart, utcEnd)` | 6.6 |
+| `getExpensesInRange(utcStart, utcEnd)`, `getBudgetsUpTo(wibDate)` (FR-076 bucketing) | 6.6 |
 | `getLedger(utcStart, utcEnd)` (null = seluruh riwayat), `getCarryIn(utcStart)` | 6.7 |
 
 ---

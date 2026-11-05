@@ -6,6 +6,7 @@ import { createPool } from '../src/db/pool';
 import { createRepo } from '../src/db/repo';
 import { loadDotEnv } from '../src/env';
 import type { Repo } from '../src/repo';
+import { wibIsoDay } from '../src/wib';
 
 loadDotEnv();
 
@@ -436,6 +437,52 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
     // Edit langsung tercermin karena pemakaian selalu dihitung ulang dari Transaksi (FR-087).
     await repo.editTransaction(expense, 'makan malam', 30_000, null);
     expect(await repo.getExpenseUsed(start, end)).toBe(30_000);
+  });
+
+  it('getExpensesInRange hanya Pengeluaran aktif dalam rentang (FR-076)', async () => {
+    const opening = await repo.setOpeningBalance('tunai', 1_000_000);
+    const transfer = await repo.addTransfer('tunai', 'bank', 50_000, 'Transfer tunai ke bank');
+    const income = await repo.addExpenseOrIncome('bank', 'income', 500_000, 'gaji');
+    const first = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, 'makan siang');
+    const second = await repo.addExpenseOrIncome('tunai', 'expense', 10_000, 'parkir');
+
+    for (const id of [opening, transfer, income]) await setOccurredAt(id, '2026-11-03T18:00:00Z');
+    await setOccurredAt(first, '2026-11-03T17:00:00Z'); // batas awal inklusif
+    await setOccurredAt(second, '2026-11-04T17:00:00Z'); // batas akhir eksklusif
+
+    const undone = await repo.addExpenseOrIncome('tunai', 'expense', 5_000, 'kopi');
+    await setOccurredAt(undone, '2026-11-03T19:00:00Z');
+    await repo.undoLast();
+
+    const deleted = await repo.addExpenseOrIncome('tunai', 'expense', 7_000, 'batal');
+    await setOccurredAt(deleted, '2026-11-03T20:00:00Z');
+    await repo.deleteTransaction(deleted);
+
+    const rows = await repo.getExpensesInRange(new Date('2026-11-03T17:00:00Z'), new Date('2026-11-04T17:00:00Z'));
+    expect(rows).toEqual([{ occurredAt: new Date('2026-11-03T17:00:00Z'), amount: 25_000 }]);
+  });
+
+  it('batas bulan WIB: 23:59 hari terakhir masuk bucket, 00:00 WIB tanggal 1 sudah keluar (FR-076)', async () => {
+    const lastMoment = await repo.addExpenseOrIncome('tunai', 'expense', 25_000, '23:59');
+    const nextMonth = await repo.addExpenseOrIncome('tunai', 'expense', 10_000, 'awal bulan');
+    await setOccurredAt(lastMoment, '2026-10-31T16:59:00Z'); // 23:59 WIB 31/10
+    await setOccurredAt(nextMonth, '2026-10-31T17:00:00Z'); // 00:00 WIB 01/11
+
+    const rows = await repo.getExpensesInRange(new Date('2026-09-30T17:00:00Z'), new Date('2026-10-31T17:00:00Z'));
+
+    expect(rows.map((row) => [wibIsoDay(row.occurredAt), row.amount])).toEqual([['2026-10-31', 25_000]]);
+  });
+
+  it('getBudgetsUpTo mengembalikan Budget sampai tanggal itu, terlama dulu, sebagai teks (FR-076)', async () => {
+    await repo.setBudget(100_000, '2026-10-01');
+    await repo.setBudget(150_000, '2026-10-10');
+
+    expect(await repo.getBudgetsUpTo('2026-09-30')).toEqual([]);
+    expect(await repo.getBudgetsUpTo('2026-10-09')).toEqual([{ effectiveFrom: '2026-10-01', amount: 100_000 }]);
+    expect(await repo.getBudgetsUpTo('2026-10-31')).toEqual([
+      { effectiveFrom: '2026-10-01', amount: 100_000 },
+      { effectiveFrom: '2026-10-10', amount: 150_000 },
+    ]);
   });
 
   it('getLedger menghitung saldo berjalan per akun dan total, Saldo awal lebih dulu (FR-092, FR-093, FR-095)', async () => {

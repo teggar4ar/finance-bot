@@ -119,6 +119,78 @@ describe('/bulan_ini', () => {
   });
 });
 
+describe('hari melewati budget (FR-076)', () => {
+  const expenseAt = (iso: string, amount: number) => ({ occurredAt: new Date(iso), amount });
+
+  it('bulan menghitung hari WIB yang melewati Budget yang berlaku, bukan hari tanpa Budget', async () => {
+    const budgetDates: string[] = [];
+    const { repo, ranges } = fakeRepo({
+      getExpensesInRange: async () => [
+        expenseAt('2026-10-04T18:00:00Z', 500_000), // 05/10, belum ada Budget
+        expenseAt('2026-10-10T05:00:00Z', 60_000), // 10/10, lewat 50.000
+        expenseAt('2026-10-19T05:00:00Z', 40_000), // 19/10, tidak lewat
+        expenseAt('2026-10-20T05:00:00Z', 40_000), // 20/10, Budget turun jadi 30.000
+        expenseAt('2026-10-25T05:00:00Z', 30_000), // tepat 30.000, belum lewat
+      ],
+      getBudgetsUpTo: async (date) => {
+        budgetDates.push(date);
+        return [
+          { effectiveFrom: '2026-10-10', amount: 50_000 },
+          { effectiveFrom: '2026-10-20', amount: 30_000 },
+        ];
+      },
+    });
+
+    const text = await run('/ringkasan 2026-10', repo);
+
+    expect(budgetDates).toEqual(['2026-10-31']);
+    expect(ranges).toEqual([{ start: '2026-09-30T17:00:00.000Z', end: '2026-10-31T17:00:00.000Z' }]);
+    expect(text).toContain('Hari melewati budget: 2');
+  });
+
+  it('/bulan_ini juga menyebutkannya', async () => {
+    const { repo } = fakeRepo({
+      getExpensesInRange: async () => [expenseAt('2026-11-05T05:00:00Z', 60_000)],
+      getBudgetsUpTo: async () => [{ effectiveFrom: '2026-11-01', amount: 50_000 }],
+    });
+
+    expect(await run('/bulan_ini', repo)).toContain('Hari melewati budget: 1');
+  });
+
+  it('tanpa Budget pada bulan itu tidak ada barisnya', async () => {
+    const { repo } = fakeRepo({
+      getExpensesInRange: async () => [expenseAt('2026-10-05T05:00:00Z', 500_000)],
+    });
+
+    expect(await run('/ringkasan 2026-10', repo)).not.toContain('Hari melewati budget');
+  });
+
+  it('Budget berlaku tapi tidak ada hari yang lewat tetap disebut 0', async () => {
+    const { repo } = fakeRepo({
+      getExpensesInRange: async () => [expenseAt('2026-10-05T05:00:00Z', 50_000)],
+      getBudgetsUpTo: async () => [{ effectiveFrom: '2026-10-05', amount: 50_000 }],
+    });
+
+    expect(await run('/ringkasan 2026-10', repo)).toContain('Hari melewati budget: 0');
+  });
+
+  it.each(['/hari_ini', '/minggu_ini', '/ringkasan 2026-10-15'])(
+    'ringkasan bukan bulanan tidak membaca Budget: %s',
+    async (text) => {
+      let budgetCalls = 0;
+      const { repo } = fakeRepo({
+        getBudgetsUpTo: async () => {
+          budgetCalls += 1;
+          return [{ effectiveFrom: '2026-10-01', amount: 50_000 }];
+        },
+      });
+
+      expect(await run(text, repo)).not.toContain('Hari melewati budget');
+      expect(budgetCalls).toBe(0);
+    },
+  );
+});
+
 describe('/ringkasan', () => {
   it('menerima satu tanggal (FR-073)', async () => {
     const { repo, ranges } = fakeRepo();

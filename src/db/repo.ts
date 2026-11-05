@@ -239,6 +239,18 @@ export function createRepo(pool: Pool): Repo {
       return rows[0] ? toSafeNumber(rows[0].amount) : null;
     },
 
+    async getBudgetsUpTo(wibDate) {
+      const { rows } = await pool.query<{ effective_from: string; amount: string }>(
+        // `to_char` menjaga bentuk `YYYY-MM-DD` apa pun `DateStyle` sesinya (FR-076).
+        `SELECT to_char(effective_from, 'YYYY-MM-DD') AS effective_from, amount
+         FROM budgets
+         WHERE effective_from <= $1
+         ORDER BY effective_from`,
+        [wibDate],
+      );
+      return rows.map((row) => ({ effectiveFrom: row.effective_from, amount: toSafeNumber(row.amount) }));
+    },
+
     async getExpenseUsed(utcStart, utcEnd) {
       const { rows } = await pool.query<{ used: string }>(
         `SELECT CAST(COALESCE(SUM(amount), 0) AS BIGINT) AS used
@@ -249,6 +261,19 @@ export function createRepo(pool: Pool): Repo {
         [utcStart, utcEnd],
       );
       return toSafeNumber(rows[0]!.used);
+    },
+
+    async getExpensesInRange(utcStart, utcEnd) {
+      const { rows } = await pool.query<{ occurred_at: Date; amount: string }>(
+        `SELECT occurred_at, amount
+         FROM transactions
+         WHERE type = 'expense'
+           AND undone_at IS NULL AND deleted_at IS NULL
+           AND occurred_at >= $1 AND occurred_at < $2
+         ORDER BY occurred_at`,
+        [utcStart, utcEnd],
+      );
+      return rows.map((row) => ({ occurredAt: row.occurred_at, amount: toSafeNumber(row.amount) }));
     },
 
     async getLedger(utcStart, utcEnd) {

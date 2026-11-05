@@ -205,11 +205,18 @@ interface Period {
   label: string;
   start: Date;
   end: Date;
+  /** Diisi hanya untuk ringkasan bulanan; hari melewati budget hanya masuk akal per bulan (FR-076). */
+  month: { year: number; month: number } | null;
 }
 
 /** Rentang UTC `[start, end)` untuk `days` hari WIB mulai `dayMs` (NFR-042). */
-function period(label: string, dayMs: number, days: number): Period {
-  return { label, start: new Date(dayMs - WIB_OFFSET_MS), end: new Date(dayMs + days * WIB_DAY_MS - WIB_OFFSET_MS) };
+function period(label: string, dayMs: number, days: number, month: Period['month'] = null): Period {
+  return {
+    label,
+    start: new Date(dayMs - WIB_OFFSET_MS),
+    end: new Date(dayMs + days * WIB_DAY_MS - WIB_OFFSET_MS),
+    month,
+  };
 }
 
 function todayPeriod(now: Date): Period {
@@ -228,7 +235,7 @@ function weekPeriod(now: Date): Period {
 }
 
 function monthPeriod(label: string, year: number, month: number): Period {
-  return period(label, wibDay(year, month, 1), daysInMonth(year, month));
+  return period(label, wibDay(year, month, 1), daysInMonth(year, month), { year, month });
 }
 
 /** FR-072: bulan kalender WIB. */
@@ -259,13 +266,49 @@ function summaryPeriod(args: string): Period | null {
 async function summary(target: Period | null, deps: Deps): Promise<string> {
   if (!target) return USAGE_RINGKASAN;
   const { income, expense, txCount } = await deps.repo.getSummary(target.start, target.end);
-  return [
+  const lines = [
     `Ringkasan ${target.label}:`,
     `Pemasukan: ${formatAmount(income)}`,
     `Pengeluaran: ${formatAmount(expense)}`,
     `Net: ${formatAmount(income - expense)}`,
     `Transaksi: ${txCount}`,
-  ].join('\n');
+  ];
+
+  if (target.month) {
+    const over = await daysOverBudget(target, target.month, deps);
+    if (over !== null) lines.push(`Hari melewati budget: ${over}`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * FR-076: jumlah hari WIB dalam bulan yang Pengeluarannya melewati Budget yang berlaku hari itu.
+ * `null` bila belum ada Budget sama sekali; hari tanpa Pengeluaran tidak mungkin melewati Budget (amount > 0).
+ */
+async function daysOverBudget(
+  target: Period,
+  { year, month }: { year: number; month: number },
+  deps: Deps,
+): Promise<number | null> {
+  const end = `${year}-${pad(month)}-${pad(daysInMonth(year, month))}`;
+  const budgets = await deps.repo.getBudgetsUpTo(end);
+  if (budgets.length === 0) return null;
+
+  const usedPerDay = new Map<string, number>();
+  for (const { occurredAt, amount } of await deps.repo.getExpensesInRange(target.start, target.end)) {
+    const day = wibIsoDay(occurredAt);
+    usedPerDay.set(day, (usedPerDay.get(day) ?? 0) + amount);
+  }
+
+  let days = 0;
+  for (const [day, used] of usedPerDay) {
+    // Budget urut tanggal naik, jadi yang terakhir cocok adalah yang berlaku pada hari itu.
+    let budget: number | null = null;
+    for (const row of budgets) if (row.effectiveFrom <= day) budget = row.amount;
+    if (budget !== null && used > budget) days += 1;
+  }
+  return days;
 }
 
 interface BudgetUsage {
