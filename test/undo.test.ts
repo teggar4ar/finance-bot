@@ -14,7 +14,7 @@ const expense: Transaction = {
   type: 'expense',
   account: 'tunai',
   toAccount: null,
-  amount: 25_000,
+  amount: 2_500_000,
   description: 'makan siang',
 };
 
@@ -22,7 +22,7 @@ describe('/undo', () => {
   it('membalas Transaksi yang dibatalkan beserta saldo terbaru (FR-050, FR-054)', async () => {
     const repo = fakeRepo({
       undoLast: async () => expense,
-      getBalances: async () => ({ tunai: 175_000, bank: 0 }),
+      getBalances: async () => ({ tunai: 17_500_000, bank: 0 }),
     });
     const text = await run('/undo', repo);
 
@@ -41,10 +41,10 @@ describe('/undo', () => {
         type: 'income',
         account: 'bank',
         toAccount: null,
-        amount: 5_000_000,
+        amount: 500_000_000,
         description: 'gaji',
       }),
-      getBalances: async () => ({ tunai: 0, bank: 100_000 }),
+      getBalances: async () => ({ tunai: 0, bank: 10_000_000 }),
     });
     const text = await run('/undo', repo);
 
@@ -60,10 +60,10 @@ describe('/undo', () => {
         type: 'transfer',
         account: 'bank',
         toAccount: 'tunai',
-        amount: 500_000,
+        amount: 50_000_000,
         description: 'Transfer bank ke tunai',
       }),
-      getBalances: async () => ({ tunai: 200_000, bank: 5_000_000 }),
+      getBalances: async () => ({ tunai: 20_000_000, bank: 500_000_000 }),
     });
     const text = await run('/undo', repo);
 
@@ -79,7 +79,7 @@ describe('/undo', () => {
         type: 'opening',
         account: 'tunai',
         toAccount: null,
-        amount: 200_000,
+        amount: 20_000_000,
         description: 'Saldo awal',
       }),
     });
@@ -95,10 +95,21 @@ describe('/undo', () => {
     );
   });
 
+  it('membalas Transaksi ber-sen setelah dibatalkan (ADR-0005)', async () => {
+    const repo = fakeRepo({
+      undoLast: async () => ({ ...expense, amount: 100_050 }),
+      getBalances: async () => ({ tunai: 25_000_075, bank: 0 }),
+    });
+    const text = await run('/undo', repo);
+
+    expect(text).toContain('💸 Pengeluaran makan siang · 1.000,50 · tunai');
+    expect(text).toContain('Saldo tunai: 250.000,75');
+  });
+
   it('membalas status, Transaksi, ID, dan saldo dalam baris terpisah (FR-054)', async () => {
     const repo = fakeRepo({
       undoLast: async () => expense,
-      getBalances: async () => ({ tunai: 175_000, bank: 0 }),
+      getBalances: async () => ({ tunai: 17_500_000, bank: 0 }),
     });
 
     expect((await run('/undo', repo)).split('\n')).toEqual([
@@ -114,7 +125,7 @@ describe('/redo', () => {
   it('membalas Transaksi yang dipulihkan beserta saldo terbaru (FR-052, FR-054)', async () => {
     const repo = fakeRepo({
       redoLast: async () => expense,
-      getBalances: async () => ({ tunai: 175_000, bank: 0 }),
+      getBalances: async () => ({ tunai: 17_500_000, bank: 0 }),
     });
     const text = await run('/redo', repo);
 
@@ -128,6 +139,17 @@ describe('/redo', () => {
     expect(await run('/redo', fakeRepo())).toBe(
       ['Tidak ada transaksi yang bisa dipulihkan.', 'Lihat /riwayat untuk transaksi aktif.'].join('\n'),
     );
+  });
+
+  it('menampilkan Nominal ber-sen saat dipulihkan (ADR-0005)', async () => {
+    const repo = fakeRepo({
+      redoLast: async () => ({ ...expense, amount: 100_050 }),
+      getBalances: async () => ({ tunai: 25_000_075, bank: 0 }),
+    });
+    const text = await run('/redo', repo);
+
+    expect(text).toContain('💸 Pengeluaran makan siang · 1.000,50 · tunai');
+    expect(text).toContain('Saldo tunai: 250.000,75');
   });
 
   it('/undo dan /redo memakai operasi yang berbeda', async () => {

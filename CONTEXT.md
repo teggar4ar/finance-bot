@@ -50,7 +50,7 @@ Kumpulan transaksi yang sedang berstatus dibatalkan dan masih bisa dipulihkan `/
 Satu angka batas pengeluaran per hari WIB, dengan tanggal mulai berlaku. Bukan per kategori, bukan per akun.
 
 **Nominal**:
-Angka rupiah bulat positif yang ditulis pengguna; `rb`/`k` berarti ribu, `jt`/`juta` berarti juta. Desimal hanya sah bila memakai suffix.
+Angka rupiah positif yang ditulis pengguna, boleh sampai 2 digit desimal (sen); `rb`/`k` berarti ribu, `jt`/`juta` berarti juta. Titik adalah pemisah ribuan, koma adalah pemisah desimal.
 _Avoid_: amount, nilai, harga
 
 **Baris ledger**:

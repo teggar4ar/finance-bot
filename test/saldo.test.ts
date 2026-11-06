@@ -40,15 +40,22 @@ describe('/saldo', () => {
   });
 
   it('menjumlahkan total dari kedua akun', async () => {
-    const text = await run('/saldo', memoryRepo({ tunai: 25_000, bank: 1_500_000 }).repo);
+    const text = await run('/saldo', memoryRepo({ tunai: 2_500_000, bank: 150_000_000 }).repo);
     expect(text).toBe(['Saldo tunai: 25.000', 'Saldo bank: 1.500.000', 'Total: 1.525.000'].join('\n'));
   });
 
   it('memunculkan peringatan bila ada saldo negatif (FR-022)', async () => {
-    const text = await run('/saldo', memoryRepo({ tunai: -25_000, bank: 10_000 }).repo);
+    const text = await run('/saldo', memoryRepo({ tunai: -2_500_000, bank: 1_000_000 }).repo);
     expect(text).toContain('Peringatan');
     expect(text).toContain('tunai');
     expect(text).toContain('-25.000');
+  });
+
+  it('menampilkan per-akun dan Total ber-sen (ADR-0005)', async () => {
+    const text = await run('/saldo', memoryRepo({ tunai: 132_176_503, bank: 2_500_075 }).repo);
+    expect(text).toBe(
+      ['Saldo tunai: 1.321.765,03', 'Saldo bank: 25.000,75', 'Total: 1.346.765,78'].join('\n'),
+    );
   });
 });
 
@@ -57,7 +64,7 @@ describe('/saldo_awal', () => {
     const { repo, openings } = memoryRepo();
     const text = await run('/saldo_awal tunai 200rb', repo);
 
-    expect(openings.tunai).toBe(200_000);
+    expect(openings.tunai).toBe(20_000_000);
     expect(text).toContain('ID 1');
     expect(text).toContain('Saldo tunai: 200.000');
   });
@@ -75,14 +82,24 @@ describe('/saldo_awal', () => {
     const { repo, openings } = memoryRepo();
     const text = await run('/saldo_awal bank 5jt', repo);
 
-    expect(openings.bank).toBe(5_000_000);
+    expect(openings.bank).toBe(500_000_000);
     expect(text).toContain('Saldo bank: 5.000.000');
   });
 
   it('menerima format Rp dengan spasi', async () => {
     const { repo, openings } = memoryRepo();
     await run('/saldo_awal tunai Rp 25.000', repo);
-    expect(openings.tunai).toBe(25_000);
+    expect(openings.tunai).toBe(2_500_000);
+  });
+
+  it('menyimpan dan menampilkan nominal ber-sen (ADR-0005)', async () => {
+    const { repo, openings } = memoryRepo();
+    const text = await run('/saldo_awal bank 1.321.765,03', repo);
+
+    expect(openings.bank).toBe(132_176_503);
+    expect(text).toContain('✅ Saldo awal tercatat');
+    expect(text).toContain('bank · 1.321.765,03');
+    expect(text).toContain('Saldo bank: 1.321.765,03');
   });
 
   it('menetapkan ulang mengganti nilai lama (FR-013)', async () => {
@@ -90,7 +107,7 @@ describe('/saldo_awal', () => {
     await run('/saldo_awal tunai 200rb', repo);
     const text = await run('/saldo_awal tunai 300rb', repo);
 
-    expect(openings.tunai).toBe(300_000);
+    expect(openings.tunai).toBe(30_000_000);
     expect(text).toContain('Saldo tunai: 300.000');
     expect(await run('/saldo', repo)).toContain('Saldo tunai: 300.000');
   });
@@ -100,7 +117,7 @@ describe('/saldo_awal', () => {
       setOpeningBalance: async () => 7,
       addExpenseOrIncome: async () => 7,
       addTransfer: async () => 7,
-      getBalances: async () => ({ tunai: -1_000, bank: 0 }),
+      getBalances: async () => ({ tunai: -100_000, bank: 0 }),
     });
     const text = await run('/saldo_awal tunai 200rb', repo);
 
@@ -111,7 +128,7 @@ describe('/saldo_awal', () => {
 
   it('menolak Nominal tidak sah tanpa menulis apa pun (FR-035)', async () => {
     const { repo, openings } = memoryRepo();
-    const text = await run('/saldo_awal tunai 1,5', repo);
+    const text = await run('/saldo_awal tunai 1.5', repo);
 
     expect(openings).toEqual({});
     expect(text).toContain('/saldo_awal tunai 200rb');

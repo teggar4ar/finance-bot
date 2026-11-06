@@ -37,19 +37,20 @@ const deps = (repo: Repo): Deps => ({ now: () => new Date('2026-11-03T01:00:00Z'
 const run = async (text: string, repo: Repo): Promise<string> =>
   (await execute(parseCommand(text), deps(repo))) as string;
 
+// Semua nominal dalam sen (ADR-0005): nilai rupiah × 100.
 describe('/transfer', () => {
   it('memindahkan Nominal dari akun asal ke akun tujuan (FR-036)', async () => {
-    const { repo, entries } = memoryRepo({ tunai: 200_000, bank: 5_000_000 });
+    const { repo, entries } = memoryRepo({ tunai: 20_000_000, bank: 500_000_000 });
     const text = await run('/transfer bank tunai 500rb', repo);
 
-    expect(entries).toEqual([{ from: 'bank', to: 'tunai', amount: 500_000, description: 'Transfer bank ke tunai' }]);
+    expect(entries).toEqual([{ from: 'bank', to: 'tunai', amount: 50_000_000, description: 'Transfer bank ke tunai' }]);
     expect(text).toContain('Transfer bank ke tunai');
     expect(text).toContain('500.000');
     expect(text).toContain('ID 1');
   });
 
   it('membalas saldo kedua akun setelah Transfer (FR-038)', async () => {
-    const { repo } = memoryRepo({ tunai: 200_000, bank: 5_000_000 });
+    const { repo } = memoryRepo({ tunai: 20_000_000, bank: 500_000_000 });
     const text = await run('/transfer bank tunai 500rb', repo);
 
     expect(text).toContain('Saldo bank: 4.500.000');
@@ -57,7 +58,7 @@ describe('/transfer', () => {
   });
 
   it('membalas bentuk multi-baris: status, detail, ID, kedua saldo (FR-038)', async () => {
-    const { repo } = memoryRepo({ tunai: 200_000, bank: 5_000_000 });
+    const { repo } = memoryRepo({ tunai: 20_000_000, bank: 500_000_000 });
     const text = await run('/transfer bank tunai 500rb', repo);
 
     expect(text).toBe(
@@ -72,7 +73,7 @@ describe('/transfer', () => {
   });
 
   it('tidak mengubah total saldo (FR-037)', async () => {
-    const { repo } = memoryRepo({ tunai: 200_000, bank: 5_000_000 });
+    const { repo } = memoryRepo({ tunai: 20_000_000, bank: 500_000_000 });
     const total = async () => (await run('/saldo', repo)).split('\n').find((line) => line.startsWith('Total:'));
 
     const before = await total();
@@ -82,14 +83,24 @@ describe('/transfer', () => {
   });
 
   it('menerima Nominal berprefix Rp dengan spasi (FR-034)', async () => {
-    const { repo, entries } = memoryRepo({ tunai: 0, bank: 1_000_000 });
+    const { repo, entries } = memoryRepo({ tunai: 0, bank: 100_000_000 });
     await run('/transfer bank tunai Rp 25.000', repo);
 
-    expect(entries[0]?.amount).toBe(25_000);
+    expect(entries[0]?.amount).toBe(2_500_000);
+  });
+
+  it('memindahkan Nominal ber-sen (ADR-0005)', async () => {
+    const { repo, entries } = memoryRepo({ tunai: 20_000_000, bank: 100_000_000 });
+    const text = await run('/transfer bank tunai 500.000,25', repo);
+
+    expect(entries[0]?.amount).toBe(50_000_025);
+    expect(text).toContain('🔁 Transfer bank ke tunai · 500.000,25');
+    expect(text).toContain('Saldo bank: 499.999,75');
+    expect(text).toContain('Saldo tunai: 700.000,25');
   });
 
   it('memunculkan peringatan bila akun asal menjadi negatif (FR-022)', async () => {
-    const { repo } = memoryRepo({ tunai: 0, bank: 10_000 });
+    const { repo } = memoryRepo({ tunai: 0, bank: 1_000_000 });
     const text = await run('/transfer bank tunai 25rb', repo);
 
     expect(text).toContain('Peringatan');
@@ -97,12 +108,12 @@ describe('/transfer', () => {
   });
 
   it('tidak memunculkan peringatan bila kedua akun tetap positif (FR-022)', async () => {
-    const { repo } = memoryRepo({ tunai: 0, bank: 1_000_000 });
+    const { repo } = memoryRepo({ tunai: 0, bank: 100_000_000 });
     expect(await run('/transfer bank tunai 500rb', repo)).not.toContain('Peringatan');
   });
 
   it('menolak Transfer ke akun yang sama dengan pesan jelas (FR-036)', async () => {
-    const { repo, entries } = memoryRepo({ tunai: 500_000, bank: 500_000 });
+    const { repo, entries } = memoryRepo({ tunai: 50_000_000, bank: 50_000_000 });
     const text = await run('/transfer tunai tunai 100rb', repo);
 
     expect(entries).toEqual([]);
@@ -114,13 +125,13 @@ describe('/transfer', () => {
     ['/transfer', 'tanpa argumen'],
     ['/transfer bank', 'tanpa akun tujuan dan Nominal'],
     ['/transfer bank tunai', 'tanpa Nominal'],
-    ['/transfer bank tunai 1,5', 'Nominal tidak sah'],
+    ['/transfer bank tunai 1.5', 'Nominal tidak sah'],
     ['/transfer bank tunai 0', 'Nominal nol'],
     ['/transfer dompet tunai 25rb', 'Akun asal tidak dikenal'],
     ['/transfer bank dompet 25rb', 'Akun tujuan tidak dikenal'],
     ['/transfer bank tunai 25rb jajan', 'token setelah Nominal'],
   ])('%s ditolak dengan petunjuk dan tanpa menulis (%s)', async (line) => {
-    const { repo, entries } = memoryRepo({ tunai: 500_000, bank: 500_000 });
+    const { repo, entries } = memoryRepo({ tunai: 50_000_000, bank: 50_000_000 });
     const text = await run(line, repo);
 
     expect(entries).toEqual([]);

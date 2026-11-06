@@ -45,7 +45,7 @@ describe('/hari_ini', () => {
   });
 
   it('menampilkan Pemasukan, Pengeluaran, Net, dan jumlah Transaksi (FR-070)', async () => {
-    const { repo } = fakeRepo({ getSummary: async () => ({ income: 5_000_000, expense: 25_000, txCount: 3 }) });
+    const { repo } = fakeRepo({ getSummary: async () => ({ income: 500_000_000, expense: 2_500_000, txCount: 3 }) });
     const text = await run('/hari_ini', repo);
 
     expect(text).toContain('hari ini (04/11/2026)');
@@ -56,8 +56,17 @@ describe('/hari_ini', () => {
   });
 
   it('Net negatif ditulis dengan tanda minus', async () => {
-    const { repo } = fakeRepo({ getSummary: async () => ({ income: 0, expense: 25_000, txCount: 1 }) });
+    const { repo } = fakeRepo({ getSummary: async () => ({ income: 0, expense: 2_500_000, txCount: 1 }) });
     expect(await run('/hari_ini', repo)).toContain('Net: -25.000');
+  });
+
+  it('menampilkan Ringkasan ber-sen (ADR-0005)', async () => {
+    const { repo } = fakeRepo({ getSummary: async () => ({ income: 500_000_050, expense: 2_500_075, txCount: 2 }) });
+    const text = await run('/hari_ini', repo);
+
+    expect(text).toContain('Pemasukan: 5.000.000,50');
+    expect(text).toContain('Pengeluaran: 25.000,75');
+    expect(text).toContain('Net: 4.974.999,75');
   });
 });
 
@@ -126,17 +135,17 @@ describe('hari melewati budget (FR-076)', () => {
     const budgetDates: string[] = [];
     const { repo, ranges } = fakeRepo({
       getExpensesInRange: async () => [
-        expenseAt('2026-10-04T18:00:00Z', 500_000), // 05/10, belum ada Budget
-        expenseAt('2026-10-10T05:00:00Z', 60_000), // 10/10, lewat 50.000
-        expenseAt('2026-10-19T05:00:00Z', 40_000), // 19/10, tidak lewat
-        expenseAt('2026-10-20T05:00:00Z', 40_000), // 20/10, Budget turun jadi 30.000
-        expenseAt('2026-10-25T05:00:00Z', 30_000), // tepat 30.000, belum lewat
+        expenseAt('2026-10-04T18:00:00Z', 50_000_000), // 05/10, belum ada Budget
+        expenseAt('2026-10-10T05:00:00Z', 6_000_000), // 10/10, lewat 50.000
+        expenseAt('2026-10-19T05:00:00Z', 4_000_000), // 19/10, tidak lewat
+        expenseAt('2026-10-20T05:00:00Z', 4_000_000), // 20/10, Budget turun jadi 30.000
+        expenseAt('2026-10-25T05:00:00Z', 3_000_000), // tepat 30.000, belum lewat
       ],
       getBudgetsUpTo: async (date) => {
         budgetDates.push(date);
         return [
-          { effectiveFrom: '2026-10-10', amount: 50_000 },
-          { effectiveFrom: '2026-10-20', amount: 30_000 },
+          { effectiveFrom: '2026-10-10', amount: 5_000_000 },
+          { effectiveFrom: '2026-10-20', amount: 3_000_000 },
         ];
       },
     });
@@ -150,8 +159,8 @@ describe('hari melewati budget (FR-076)', () => {
 
   it('/bulan_ini juga menyebutkannya', async () => {
     const { repo } = fakeRepo({
-      getExpensesInRange: async () => [expenseAt('2026-11-05T05:00:00Z', 60_000)],
-      getBudgetsUpTo: async () => [{ effectiveFrom: '2026-11-01', amount: 50_000 }],
+      getExpensesInRange: async () => [expenseAt('2026-11-05T05:00:00Z', 6_000_000)],
+      getBudgetsUpTo: async () => [{ effectiveFrom: '2026-11-01', amount: 5_000_000 }],
     });
 
     expect(await run('/bulan_ini', repo)).toContain('Hari melewati budget: 1');

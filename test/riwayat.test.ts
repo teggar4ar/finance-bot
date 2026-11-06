@@ -39,7 +39,7 @@ const expense: HistoryTransaction = {
   type: 'expense',
   account: 'tunai',
   toAccount: null,
-  amount: 25_000,
+  amount: 2_500_000,
   description: 'makan siang',
   occurredAt: new Date('2026-11-03T01:15:00Z'), // 08:15 WIB
 };
@@ -65,7 +65,7 @@ describe('/riwayat', () => {
           type: 'transfer',
           account: 'bank',
           toAccount: 'tunai',
-          amount: 500_000,
+          amount: 50_000_000,
           description: 'Transfer bank ke tunai',
           occurredAt: new Date('2026-11-03T00:00:00Z'),
         },
@@ -85,7 +85,7 @@ describe('/riwayat', () => {
           type: 'opening',
           account: 'tunai',
           toAccount: null,
-          amount: 200_000,
+          amount: 20_000_000,
           description: 'Saldo awal',
           occurredAt: new Date('2026-11-01T02:00:00Z'),
         },
@@ -123,34 +123,45 @@ describe('/edit', () => {
     type: 'expense',
     account: 'bank',
     toAccount: null,
-    amount: 30_000,
+    amount: 3_000_000,
     description: 'makan malam',
   };
 
   it('mengubah deskripsi, Nominal, dan akun Pengeluaran (FR-061)', async () => {
     const { repo, recorded } = fakeRepo({
       editTransaction: async () => edited,
-      getBalances: async () => ({ tunai: 170_000, bank: 1_000_000 }),
+      getBalances: async () => ({ tunai: 17_000_000, bank: 100_000_000 }),
     });
     const text = await run('/edit 12 makan malam 30rb @bank', repo);
 
-    expect(recorded.edited).toEqual([{ id: 12, description: 'makan malam', amount: 30_000, account: 'bank' }]);
+    expect(recorded.edited).toEqual([{ id: 12, description: 'makan malam', amount: 3_000_000, account: 'bank' }]);
     expect(text).toContain('Transaksi diubah');
     expect(text).toContain('makan malam');
     expect(text).toContain('30.000');
+  });
+
+  it('mengubah dan menampilkan Nominal ber-sen (ADR-0005)', async () => {
+    const { repo, recorded } = fakeRepo({
+      editTransaction: async () => ({ ...edited, amount: 3_000_050, description: 'makan malam' }),
+      getBalances: async () => ({ tunai: 17_000_000, bank: 100_000_000 }),
+    });
+    const text = await run('/edit 12 makan malam 30.000,50 @bank', repo);
+
+    expect(recorded.edited).toEqual([{ id: 12, description: 'makan malam', amount: 3_000_050, account: 'bank' }]);
+    expect(text).toContain('makan malam · 30.000,50 · bank');
   });
 
   it('tanpa flag Akun membiarkan akun lama (FR-061)', async () => {
     const { repo, recorded } = fakeRepo({ editTransaction: async () => ({ ...edited, account: 'tunai' }) });
     await run('/edit 12 makan malam 30rb', repo);
 
-    expect(recorded.edited).toEqual([{ id: 12, description: 'makan malam', amount: 30_000, account: null }]);
+    expect(recorded.edited).toEqual([{ id: 12, description: 'makan malam', amount: 3_000_000, account: null }]);
   });
 
   it('membalas saldo akun terpengaruh (FR-064)', async () => {
     const { repo } = fakeRepo({
       editTransaction: async () => edited,
-      getBalances: async () => ({ tunai: 170_000, bank: 1_000_000 }),
+      getBalances: async () => ({ tunai: 17_000_000, bank: 100_000_000 }),
     });
     const text = await run('/edit 12 makan malam 30rb @bank', repo);
 
@@ -192,7 +203,7 @@ describe('/hapus', () => {
   it('menghapus Transaksi aktif dan membalas saldo terbaru (FR-062, FR-064)', async () => {
     const { repo, recorded } = fakeRepo({
       deleteTransaction: async () => ({ ...expense, type: 'expense' }),
-      getBalances: async () => ({ tunai: 200_000, bank: 0 }),
+      getBalances: async () => ({ tunai: 20_000_000, bank: 0 }),
     });
     const text = await run('/hapus 12', repo);
 
@@ -202,6 +213,17 @@ describe('/hapus', () => {
     expect(text).toContain('Saldo tunai: 200.000');
   });
 
+  it('membalas dengan Nominal dan saldo ber-sen saat dihapus (ADR-0005)', async () => {
+    const { repo } = fakeRepo({
+      deleteTransaction: async () => ({ ...expense, amount: 100_050 }),
+      getBalances: async () => ({ tunai: 25_000_075, bank: 0 }),
+    });
+    const text = await run('/hapus 12', repo);
+
+    expect(text).toContain('makan siang · 1.000,50 · tunai');
+    expect(text).toContain('Saldo tunai: 250.000,75');
+  });
+
   it('membalas kedua Akun saat Transfer dihapus (FR-064)', async () => {
     const { repo } = fakeRepo({
       deleteTransaction: async () => ({
@@ -209,10 +231,10 @@ describe('/hapus', () => {
         type: 'transfer',
         account: 'bank',
         toAccount: 'tunai',
-        amount: 500_000,
+        amount: 50_000_000,
         description: 'Transfer bank ke tunai',
       }),
-      getBalances: async () => ({ tunai: 200_000, bank: 5_000_000 }),
+      getBalances: async () => ({ tunai: 20_000_000, bank: 500_000_000 }),
     });
     const text = await run('/hapus 11', repo);
 
