@@ -22,6 +22,8 @@ export type Reply = string | CsvFile;
 export const HELP = [
   'Command yang tersedia',
   '',
+  'Nominal boleh berdesimal hingga 2 digit setelah koma (mis. 25.000,50).',
+  '',
   'Catat',
   '/saldo_awal tunai 200rb — tetapkan saldo awal satu akun',
   '/pengeluaran makan siang 25rb — catat pengeluaran dari tunai (alias /k)',

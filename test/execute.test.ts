@@ -47,6 +47,11 @@ describe('execute', () => {
     expect(HELP).toContain('(alias /m)');
   });
 
+  it('daftar command menjelaskan Nominal boleh desimal ≤2 digit (FR-034, #19)', () => {
+    expect(HELP).toContain('desimal');
+    expect(HELP).toContain('2 digit');
+  });
+
   it('daftar command dikelompokkan per kategori (FR-100)', () => {
     for (const category of ['Catat', 'Lihat', 'Ubah', 'Budget dan export']) {
       expect(HELP).toContain(`\n${category}\n`);

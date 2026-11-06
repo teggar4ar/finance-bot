@@ -16,7 +16,7 @@ Catat pengeluaran, pemasukan, dan transfer dengan satu baris singkat (mis. `/k m
 
 - **Dua akun** (`tunai`, `bank`) dengan saldo yang selalu diturunkan dari transaksi aktif.
 - **Catat cepat** — pengeluaran, pemasukan, dan transfer antar akun; tunai jadi default sehingga entri umum tak perlu flag.
-- **Parser nominal Indonesia** — `25rb`, `25k`, `1,5jt`, `1.5jt`, `25.000`, `25000`.
+- **Parser nominal Indonesia** — `25rb`, `25k`, `1,5jt`, `1.5jt`, `25.000`, `25000`; nominal juga boleh berdesimal hingga 2 digit (sen), mis. `25.000,50` atau `1.321.765,03` (titik pemisah ribuan, koma pemisah desimal).
 - **Saldo awal** sebagai *row zero* ledger (boleh ditetapkan kapan saja; selalu dianggap sebelum transaksi lain).
 - **Undo / redo** (soft delete) untuk transaksi terakhir.
 - **Riwayat, edit, hapus** transaksi berdasarkan ID.
@@ -120,7 +120,7 @@ src/
    ├─ repo.ts      # createRepo(pool) — satu-satunya tempat SQL
    ├─ pool.ts      # connection pool pg
    └─ init.ts      # penerap schema.sql
-test/              # 240 tes Vitest (15 file) + fake-repo.ts
+test/              # 267 tes Vitest (15 file) + fake-repo.ts
 ```
 
 Arsitektur ringkas: semua handler adalah fungsi murni di balik seam `execute(command, deps) → Reply`, sehingga mudah diuji tanpa database. **Seluruh SQL tinggal di `src/db/repo.ts`**; sisanya memanggil fungsi seperti `getBalances()` atau `addExpenseOrIncome()`. Alur waktu memakai UTC di DB dan batas hari/minggu/bulan WIB dihitung di aplikasi (SQL tetap portabel).
@@ -131,7 +131,7 @@ Arsitektur ringkas: semua handler adalah fungsi murni di balik seam `execute(com
 npm test
 ```
 
-**240 tes di 15 file** (Vitest). Unit test mencakup parser nominal, parser argumen, aturan budget, dan logika saldo. Tes integrasi menembak PostgreSQL sungguhan pada database `_test` dan **dilewati bila `TEST_DATABASE_URL` kosong**.
+**267 tes di 15 file** (Vitest). Unit test mencakup parser nominal, parser argumen, aturan budget, dan logika saldo. Tes integrasi menembak PostgreSQL sungguhan pada database `_test` dan **dilewati bila `TEST_DATABASE_URL` kosong**.
 
 > [!TIP]
 > `tsconfig.json` hanya meng-`include` `src`, jadi tes tidak ikut di-typecheck oleh `tsc` biasa. Tes integrasi menolak berjalan bila nama database tidak berakhiran `_test`.
