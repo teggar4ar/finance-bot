@@ -62,6 +62,15 @@ describe('/saldo_awal', () => {
     expect(text).toContain('Saldo tunai: 200.000');
   });
 
+  it('membalas bentuk multi-baris: status, detail, ID, saldo (FR-038)', async () => {
+    const { repo } = memoryRepo();
+    const text = await run('/saldo_awal tunai 200rb', repo);
+
+    expect(text).toBe(
+      ['✅ Saldo awal tercatat', 'tunai · 200.000', 'ID 1', 'Saldo tunai: 200.000'].join('\n'),
+    );
+  });
+
   it('bekerja untuk akun bank', async () => {
     const { repo, openings } = memoryRepo();
     const text = await run('/saldo_awal bank 5jt', repo);

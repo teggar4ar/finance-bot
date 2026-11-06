@@ -36,6 +36,7 @@ describe('execute', () => {
       '/budget',
       '/export',
       '/help',
+      '/start',
     ]) {
       expect(HELP).toContain(command);
     }
@@ -44,6 +45,17 @@ describe('execute', () => {
   it('daftar command memuat alias /k dan /m (FR-030, FR-031)', () => {
     expect(HELP).toContain('(alias /k)');
     expect(HELP).toContain('(alias /m)');
+  });
+
+  it('daftar command dikelompokkan per kategori (FR-100)', () => {
+    for (const category of ['Catat', 'Lihat', 'Ubah', 'Budget dan export']) {
+      expect(HELP).toContain(`\n${category}\n`);
+    }
+  });
+
+  it('petunjuk command tidak dikenal dua baris dan menunjuk /help (FR-103)', () => {
+    expect(HINT.split('\n')).toHaveLength(2);
+    expect(HINT).toContain('/help');
   });
 
   it('teks biasa dibalas petunjuk singkat (FR-103)', async () => {

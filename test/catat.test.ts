@@ -96,6 +96,28 @@ describe('/pengeluaran', () => {
 
     expect(text).toContain('Peringatan');
     expect(text).toContain('tunai');
+    expect(text.split('\n').at(-1)).toBe('⚠️ Peringatan: saldo tunai negatif.');
+  });
+
+  it('membalas bentuk multi-baris: status, detail, ID, saldo (FR-038)', async () => {
+    const { repo } = memoryRepo({ tunai: 200_000, bank: 0 });
+    const text = await run('/pengeluaran makan siang 25rb', repo);
+
+    expect(text).toBe(
+      ['✅ Pengeluaran tercatat', 'makan siang · 25.000 · tunai', 'ID 1', 'Saldo tunai: 175.000'].join('\n'),
+    );
+  });
+
+  it('penolakan memakai Format: dan Contoh: di baris terpisah (NFR-061)', async () => {
+    const { repo } = memoryRepo();
+    const text = await run('/pengeluaran 25rb', repo);
+
+    expect(text).toBe(
+      [
+        'Format: /pengeluaran <deskripsi> <nominal> [@bank|@tunai]',
+        'Contoh: /pengeluaran makan siang 25rb',
+      ].join('\n'),
+    );
   });
 
   it.each([

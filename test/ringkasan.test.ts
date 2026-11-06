@@ -165,13 +165,13 @@ describe('hari melewati budget (FR-076)', () => {
     expect(await run('/ringkasan 2026-10', repo)).not.toContain('Hari melewati budget');
   });
 
-  it('Budget berlaku tapi tidak ada hari yang lewat tetap disebut 0', async () => {
+  it('Budget berlaku tapi tidak ada hari yang lewat: barisnya disembunyikan', async () => {
     const { repo } = fakeRepo({
       getExpensesInRange: async () => [expenseAt('2026-10-05T05:00:00Z', 50_000)],
       getBudgetsUpTo: async () => [{ effectiveFrom: '2026-10-05', amount: 50_000 }],
     });
 
-    expect(await run('/ringkasan 2026-10', repo)).toContain('Hari melewati budget: 0');
+    expect(await run('/ringkasan 2026-10', repo)).not.toContain('Hari melewati budget');
   });
 
   it.each(['/hari_ini', '/minggu_ini', '/ringkasan 2026-10-15'])(

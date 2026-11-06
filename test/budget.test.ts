@@ -114,15 +114,16 @@ describe('baris Budget di balasan Pengeluaran', () => {
     const { repo } = fakeRepo(150_000, 175_000);
     const text = await run('/pengeluaran makan siang 25rb', repo);
 
-    expect(text).toContain('Budget hari ini: 175.000 / 150.000 (sisa -25.000)');
+    expect(text).toContain('Budget hari ini: 175.000 / 150.000');
+    expect(text).toContain('Kelebihan: 25.000');
   });
 
-  it('baris Budget datang setelah baris saldo (FR-085)', async () => {
+  it('baris Budget datang setelah saldo (FR-085)', async () => {
     const { repo } = fakeRepo(150_000, 25_000);
     const lines = (await run('/pengeluaran makan siang 25rb', repo)).split('\n');
 
-    expect(lines).toHaveLength(2);
-    expect(lines[1]).toContain('Budget hari ini: 25.000 / 150.000');
+    expect(lines.indexOf('Saldo tunai: 0')).toBeLessThan(lines.indexOf('Budget hari ini: 25.000 / 150.000'));
+    expect(lines).toContain('Sisa: 125.000');
   });
 
   it('tidak menampilkan apa pun bila belum ada Budget (FR-088)', async () => {
@@ -167,7 +168,8 @@ describe('baris Budget di balasan Pengeluaran', () => {
     const { repo } = fakeRepo(150_000, 175_000);
     const text = await run('/pengeluaran makan siang 25rb', repo);
 
-    expect(text).toContain('Peringatan: pemakaian budget hari ini 116% — budget harian terlampaui.');
+    expect(text).toContain('Peringatan: pemakaian budget hari ini 116%, budget harian terlampaui.');
+    expect(text.split('\n').at(-1)).toBe('⚠️ Peringatan: pemakaian budget hari ini 116%, budget harian terlampaui.');
   });
 
   it('/edit dan /hapus tidak menampilkan baris Budget', async () => {

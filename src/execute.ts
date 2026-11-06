@@ -18,40 +18,61 @@ export interface Deps {
 
 export type Reply = string | CsvFile;
 
+/** FR-100: per kategori; setiap command v1 tetap muncul dengan contoh singkat. */
 export const HELP = [
-  'Command yang tersedia:',
+  'Command yang tersedia',
   '',
-  '/saldo — saldo tunai, bank, dan total',
+  'Catat',
   '/saldo_awal tunai 200rb — tetapkan saldo awal satu akun',
-  '/pengeluaran makan siang 25rb — catat pengeluaran, default tunai (alias /k)',
-  '/pengeluaran spotify 55rb @bank — pengeluaran dari bank',
-  '/pemasukan gaji 5jt @bank — catat pemasukan (alias /m)',
+  '/pengeluaran makan siang 25rb — catat pengeluaran dari tunai (alias /k)',
+  '/pengeluaran spotify 55rb @bank — catat pengeluaran dari bank',
+  '/pemasukan gaji 5jt @bank — catat pemasukan ke bank (alias /m)',
   '/transfer bank tunai 500rb — pindah uang antar akun',
-  '/undo atau /redo — batalkan atau pulihkan transaksi terakhir',
+  '',
+  'Lihat',
+  '/saldo — saldo tunai, bank, dan total',
   '/riwayat — 10 transaksi terakhir',
+  '/hari_ini — ringkasan hari ini',
+  '/minggu_ini — ringkasan minggu ini',
+  '/bulan_ini — ringkasan bulan ini',
+  '/ringkasan 2026-10-15 — ringkasan satu tanggal',
+  '/ringkasan 2026-10 — ringkasan satu bulan',
+  '',
+  'Ubah',
+  '/undo — batalkan transaksi terakhir',
+  '/redo — pulihkan transaksi terakhir',
   '/edit 12 makan malam 30rb — ubah transaksi',
   '/hapus 12 — hapus transaksi',
-  '/hari_ini, /minggu_ini, /bulan_ini — ringkasan',
-  '/ringkasan 2026-10-15 atau /ringkasan 2026-10 — ringkasan tanggal atau bulan',
-  '/budget atau /budget 150rb — lihat atau ubah budget harian',
-  '/export atau /export 2026-10 — ekspor CSV',
+  '',
+  'Budget dan export',
+  '/budget — lihat budget harian',
+  '/budget 150rb — tetapkan budget harian',
+  '/export — ekspor semua transaksi ke CSV',
+  '/export 2026-10 — ekspor satu bulan',
+  '',
   '/help — daftar command ini',
+  '/start — daftar command ini',
 ].join('\n');
 
-export const HINT = 'Command tidak dikenal. Kirim /help untuk daftar command.';
+export const HINT = ['Command tidak dikenal.', 'Ketik /help untuk daftar command.'].join('\n');
 
-const USAGE_SALDO_AWAL = 'Format: /saldo_awal <tunai|bank> <nominal>, contoh /saldo_awal tunai 200rb';
-const USAGE_PENGELUARAN =
-  'Format: /pengeluaran <deskripsi> <nominal> [@bank|@tunai], contoh /pengeluaran makan siang 25rb';
-const USAGE_PEMASUKAN =
-  'Format: /pemasukan <deskripsi> <nominal> [@bank|@tunai], contoh /pemasukan gaji 5jt @bank';
-const USAGE_TRANSFER = 'Format: /transfer <dari> <ke> <nominal>, contoh /transfer bank tunai 500rb';
-const USAGE_EDIT = 'Format: /edit <id> <deskripsi> <nominal> [@bank|@tunai], contoh /edit 12 makan malam 30rb';
-const USAGE_HAPUS = 'Format: /hapus <id>, contoh /hapus 12';
-const USAGE_RINGKASAN =
-  'Format: /ringkasan <tanggal|bulan>, contoh /ringkasan 2026-10-15 atau /ringkasan 2026-10';
-const USAGE_BUDGET = 'Format: /budget <nominal>, contoh /budget 150rb';
-const USAGE_EXPORT = 'Format: /export atau /export 2026-10, contoh /export 2026-10';
+const usage = (format: string, example: string) => ['Format: ' + format, 'Contoh: ' + example].join('\n');
+
+const USAGE_SALDO_AWAL = usage('/saldo_awal <tunai|bank> <nominal>', '/saldo_awal tunai 200rb');
+const USAGE_PENGELUARAN = usage(
+  '/pengeluaran <deskripsi> <nominal> [@bank|@tunai]',
+  '/pengeluaran makan siang 25rb',
+);
+const USAGE_PEMASUKAN = usage(
+  '/pemasukan <deskripsi> <nominal> [@bank|@tunai]',
+  '/pemasukan gaji 5jt @bank',
+);
+const USAGE_TRANSFER = usage('/transfer <dari> <ke> <nominal>', '/transfer bank tunai 500rb');
+const USAGE_EDIT = usage('/edit <id> <deskripsi> <nominal> [@bank|@tunai]', '/edit 12 makan malam 30rb');
+const USAGE_HAPUS = usage('/hapus <id>', '/hapus 12');
+const USAGE_RINGKASAN = usage('/ringkasan <tanggal|bulan>', '/ringkasan 2026-10-15 atau /ringkasan 2026-10');
+const USAGE_BUDGET = usage('/budget <nominal>', '/budget 150rb');
+const USAGE_EXPORT = usage('/export [YYYY-MM]', '/export 2026-10');
 
 /** FR-086, A2: ambang peringatan lembut, satu konstanta supaya mudah diubah. */
 const SOFT_WARNING_PERCENT = 80;
@@ -60,26 +81,43 @@ const HISTORY_LIMIT = 10;
 
 /** Nama jenis yang tampil ke pengguna; satu tempat supaya balasan tidak berbeda kata. */
 const TYPE_LABELS: Record<ExpenseOrIncome, string> = { expense: 'Pengeluaran', income: 'Pemasukan' };
+const TYPE_EMOJI: Record<ExpenseOrIncome, string> = { expense: '💸', income: '📥' };
+const TRANSFER_EMOJI = '🔁';
 
-function negativeWarning(negative: readonly Account[]): string {
-  return negative.length > 0 ? `Peringatan: saldo ${negative.join(' dan ')} negatif.` : '';
+/** Pemisah antar bagian di satu baris detail. */
+const SEP = ' · ';
+
+/** Baris detail Transfer; satu tempat untuk konfirmasi dan `/undo`/`/redo` transaksi transfer. */
+function transferDetail(description: string, amount: number): string {
+  return `${TRANSFER_EMOJI} ${description}${SEP}${formatAmount(amount)}`;
 }
 
-/** FR-022: peringatan bila tulisan meninggalkan saldo Akun negatif. */
-function balanceWarning(accounts: readonly Account[], balances: Balances): string {
+/** Balasan multi-baris; baris `null` (mis. peringatan yang tidak berlaku) dibuang. */
+function replyLines(...lines: (string | null)[]): string {
+  return lines.filter((line): line is string => line !== null).join('\n');
+}
+
+/** FR-022: peringatan selalu baris sendiri dengan penanda ⚠️; `null` bila tidak ada saldo negatif. */
+function negativeWarning(accounts: readonly Account[], balances: Balances): string | null {
   const negative = accounts.filter((account) => balances[account] < 0);
-  return negative.length > 0 ? ` ${negativeWarning(negative)}` : '';
+  return negative.length > 0 ? `⚠️ Peringatan: saldo ${negative.join(' dan ')} negatif.` : null;
+}
+
+/** NFR-062: saldo Akun yang tersentuh, plus peringatan bila ada yang negatif. */
+function balanceLines(accounts: readonly Account[], balances: Balances): (string | null)[] {
+  return [
+    ...accounts.map((account) => `Saldo ${account}: ${formatAmount(balances[account])}`),
+    negativeWarning(accounts, balances),
+  ];
 }
 
 function saldoText(balances: Balances): string {
-  const lines = [
+  return replyLines(
     `Saldo tunai: ${formatAmount(balances.tunai)}`,
     `Saldo bank: ${formatAmount(balances.bank)}`,
     `Total: ${formatAmount(balances.tunai + balances.bank)}`,
-  ];
-  const warning = negativeWarning((['tunai', 'bank'] as const).filter((account) => balances[account] < 0));
-  if (warning) lines.push(warning);
-  return lines.join('\n');
+    negativeWarning(['tunai', 'bank'], balances),
+  );
 }
 
 async function setOpeningBalance(args: string, deps: Deps): Promise<string> {
@@ -89,7 +127,12 @@ async function setOpeningBalance(args: string, deps: Deps): Promise<string> {
 
   const id = await deps.repo.setOpeningBalance(account, amount);
   const balances = await deps.repo.getBalances();
-  return `Saldo awal ${account} ${formatAmount(amount)} dicatat. ID ${id}. Saldo ${account}: ${formatAmount(balances[account])}.${balanceWarning([account], balances)}`;
+  return replyLines(
+    '✅ Saldo awal tercatat',
+    `${account}${SEP}${formatAmount(amount)}`,
+    `ID ${id}`,
+    ...balanceLines([account], balances),
+  );
 }
 
 interface NewTransaction {
@@ -131,13 +174,17 @@ async function recordTransaction(args: string, type: ExpenseOrIncome, deps: Deps
   const account = transaction.account ?? 'tunai';
   const id = await deps.repo.addExpenseOrIncome(account, type, transaction.amount, transaction.description);
   const balances = await deps.repo.getBalances();
-  const label = TYPE_LABELS[type];
   const { amount, description } = transaction;
-  const reply = `${label} ${description} ${formatAmount(amount)} (${account}) tercatat. ID ${id}. Saldo ${account}: ${formatAmount(balances[account])}.${balanceWarning([account], balances)}`;
+  const lines = [
+    `✅ ${TYPE_LABELS[type]} tercatat`,
+    `${description}${SEP}${formatAmount(amount)}${SEP}${account}`,
+    `ID ${id}`,
+    ...balanceLines([account], balances),
+  ];
 
-  if (type !== 'expense') return reply;
+  if (type !== 'expense') return replyLines(...lines);
   const usage = await budgetUsage(deps);
-  return usage ? `${reply}\n${budgetLine(usage)}` : reply;
+  return replyLines(...lines, ...(usage ? budgetLines(usage) : []));
 }
 
 /** FR-036: urutan argumen <from> <to> <amount>, tanpa deskripsi dari pengguna. */
@@ -145,12 +192,17 @@ async function recordTransfer(args: string, deps: Deps): Promise<string> {
   const [from, to, ...rest] = args.trim().split(/\s+/);
   const amount = parseAmount(rest.join(' '));
   if (!isAccount(from) || !isAccount(to) || amount === null) return USAGE_TRANSFER;
-  if (from === to) return `Tidak bisa transfer ke akun yang sama. ${USAGE_TRANSFER}`;
+  if (from === to) return replyLines('Tidak bisa transfer ke akun yang sama.', USAGE_TRANSFER);
 
   const description = `Transfer ${from} ke ${to}`;
   const id = await deps.repo.addTransfer(from, to, amount, description);
   const balances = await deps.repo.getBalances();
-  return `${description} ${formatAmount(amount)} tercatat. ID ${id}. Saldo ${from}: ${formatAmount(balances[from])}. Saldo ${to}: ${formatAmount(balances[to])}.${balanceWarning([from, to], balances)}`;
+  return replyLines(
+    '✅ Transfer tercatat',
+    transferDetail(description, amount),
+    `ID ${id}`,
+    ...balanceLines([from, to], balances),
+  );
 }
 
 type Handler = (command: Command, deps: Deps) => Promise<Reply>;
@@ -158,9 +210,9 @@ type Handler = (command: Command, deps: Deps) => Promise<Reply>;
 /** FR-054: balasan menyebut Transaksi yang berubah dan saldo Akun yang terdampak. */
 function transactionLabel(transaction: Transaction): string {
   const { type, account, amount, description } = transaction;
-  if (type === 'transfer') return `${description} ${formatAmount(amount)}`;
-  if (type === 'opening') return `Saldo awal ${account} ${formatAmount(amount)}`;
-  return `${TYPE_LABELS[type]} ${description} ${formatAmount(amount)} (${account})`;
+  if (type === 'transfer') return transferDetail(description, amount);
+  if (type === 'opening') return `Saldo awal ${account}${SEP}${formatAmount(amount)}`;
+  return `${TYPE_EMOJI[type]} ${TYPE_LABELS[type]} ${description}${SEP}${formatAmount(amount)}${SEP}${account}`;
 }
 
 /** Akun yang saldonya tersentuh Transaksi ini. */
@@ -171,33 +223,39 @@ function affectedAccounts(transaction: Transaction): Account[] {
 async function undoOrRedo(action: 'undo' | 'redo', deps: Deps): Promise<string> {
   const transaction = action === 'undo' ? await deps.repo.undoLast() : await deps.repo.redoLast();
   if (!transaction) {
-    return action === 'undo' ? 'Tidak ada transaksi yang bisa dibatalkan.' : 'Tidak ada transaksi yang bisa dipulihkan.';
+    return action === 'undo'
+      ? replyLines('Tidak ada transaksi yang bisa dibatalkan.', 'Lihat /riwayat untuk transaksi aktif.')
+      : replyLines('Tidak ada transaksi yang bisa dipulihkan.', 'Lihat /riwayat untuk transaksi aktif.');
   }
 
   const accounts = affectedAccounts(transaction);
   const balances = await deps.repo.getBalances();
-  const verb = action === 'undo' ? 'Dibatalkan' : 'Dipulihkan';
-  return `${verb}: ${transactionLabel(transaction)}, ID ${transaction.id}. ${saldoSummary(accounts, balances)}`;
+  return replyLines(
+    action === 'undo' ? '✅ Transaksi dibatalkan' : '✅ Transaksi dipulihkan',
+    transactionLabel(transaction),
+    `ID ${transaction.id}`,
+    ...balanceLines(accounts, balances),
+  );
 }
 
-function saldoSummary(accounts: readonly Account[], balances: Balances): string {
-  return accounts.map((account) => `Saldo ${account}: ${formatAmount(balances[account])}.`).join(' ');
-}
-
-/** FR-060: Transfer tampil `bank -> tunai`, Saldo awal tampil `saldo awal`. */
+/** FR-060: Transfer tampil `bank -> tunai`, Saldo awal tampil `Saldo awal`. */
 function historyLine(transaction: HistoryTransaction): string {
   const head = `#${transaction.id} ${wibTimestamp(transaction.occurredAt)}`;
-  if (transaction.type === 'opening') return `${head} saldo awal ${transaction.account} ${formatAmount(transaction.amount)}`;
+  if (transaction.type === 'opening') {
+    return `${head}${SEP}Saldo awal ${transaction.account}${SEP}${formatAmount(transaction.amount)}`;
+  }
   if (transaction.type === 'transfer') {
-    return `${head} Transfer ${formatAmount(transaction.amount)} ${transaction.account} -> ${transaction.toAccount}`;
+    return `${head}${SEP}${TRANSFER_EMOJI} Transfer ${transaction.account} -> ${transaction.toAccount}${SEP}${formatAmount(transaction.amount)}`;
   }
   const label = TYPE_LABELS[transaction.type];
-  return `${head} ${label} ${transaction.account} ${formatAmount(transaction.amount)} ${transaction.description}`;
+  return `${head}${SEP}${TYPE_EMOJI[transaction.type]} ${label}${SEP}${transaction.description}${SEP}${formatAmount(transaction.amount)}${SEP}${transaction.account}`;
 }
 
 async function history(deps: Deps): Promise<string> {
   const transactions = await deps.repo.getHistory(HISTORY_LIMIT);
-  if (transactions.length === 0) return 'Belum ada transaksi.';
+  if (transactions.length === 0) {
+    return replyLines('Belum ada transaksi.', 'Catat dengan /pengeluaran atau /pemasukan.');
+  }
   return ['Riwayat transaksi terakhir:', ...transactions.map(historyLine)].join('\n');
 }
 
@@ -276,7 +334,8 @@ async function summary(target: Period | null, deps: Deps): Promise<string> {
 
   if (target.month) {
     const over = await daysOverBudget(target, target.month, deps);
-    if (over !== null) lines.push(`Hari melewati budget: ${over}`);
+    // FR-076: baris hanya bila ada hari yang lewat; `0` saat Budget baru berlaku sebagian bulan tidak berguna.
+    if (over !== null && over > 0) lines.push(`Hari melewati budget: ${over}`);
   }
 
   return lines.join('\n');
@@ -325,35 +384,40 @@ async function budgetUsage(deps: Deps): Promise<BudgetUsage | null> {
   return { budget, used: await deps.repo.getExpenseUsed(today.start, today.end) };
 }
 
-/** FR-085, FR-086: baris pemakaian di setiap konfirmasi Pengeluaran; tepat 100% masih lembut. */
-function budgetLine({ budget, used }: BudgetUsage): string {
-  const line = `Budget hari ini: ${formatAmount(used)} / ${formatAmount(budget)} (sisa ${formatAmount(budget - used)})`;
+/** FR-085, FR-086: pemakaian di setiap konfirmasi Pengeluaran; tepat 100% masih lembut. */
+function budgetLines({ budget, used }: BudgetUsage): string[] {
+  const left = budget - used;
+  const lines = [
+    `Budget hari ini: ${formatAmount(used)} / ${formatAmount(budget)}`,
+    left < 0 ? `Kelebihan: ${formatAmount(-left)}` : `Sisa: ${formatAmount(left)}`,
+  ];
   // Dibagi dulu supaya perkaliannya tidak melewati batas bilangan aman di Nominal besar.
-  if ((used / budget) * 100 < SOFT_WARNING_PERCENT) return line;
+  if ((used / budget) * 100 < SOFT_WARNING_PERCENT) return lines;
 
   const percent = Math.floor((used / budget) * 100);
-  const over = used > budget ? ' — budget harian terlampaui' : '';
-  return `${line} Peringatan: pemakaian budget hari ini ${percent}%${over}.`;
+  const over = used > budget ? ', budget harian terlampaui' : '';
+  lines.push(`⚠️ Peringatan: pemakaian budget hari ini ${percent}%${over}.`);
+  return lines;
 }
 
 /** FR-081/FR-082: tanpa argumen menampilkan, dengan Nominal menetapkan mulai hari ini. */
 async function dailyBudget(args: string, deps: Deps): Promise<string> {
   if (!args.trim()) {
     const usage = await budgetUsage(deps);
-    if (!usage) return 'Belum ada budget harian. Tetapkan dengan /budget 150rb.';
+    if (!usage) return replyLines('Belum ada budget harian.', 'Tetapkan dengan /budget 150rb.');
     const left = usage.budget - usage.used;
-    return [
+    return replyLines(
       `Budget harian: ${formatAmount(usage.budget)}`,
       `Pemakaian hari ini: ${formatAmount(usage.used)}`,
       left < 0 ? `Kelebihan: ${formatAmount(-left)}` : `Sisa: ${formatAmount(left)}`,
-    ].join('\n');
+    );
   }
 
   const amount = parseAmount(args);
   if (amount === null) return USAGE_BUDGET;
   const now = deps.now();
   await deps.repo.setBudget(amount, wibIsoDay(now));
-  return `Budget harian ${formatAmount(amount)} berlaku ${todayPeriod(now).label}.`;
+  return replyLines('✅ Budget harian ditetapkan', `${formatAmount(amount)}${SEP}berlaku ${todayPeriod(now).label}`);
 }
 
 /** FR-090/FR-091: tanpa argumen seluruh data, `YYYY-MM` satu bulan. */
@@ -390,13 +454,16 @@ async function editTransaction(args: string, deps: Deps): Promise<string> {
 
   const edited = await deps.repo.editTransaction(id, transaction.description, transaction.amount, transaction.account);
   if (!edited) {
-    return `Tidak bisa mengedit ID ${id}: Transaksi tidak ada, sudah Dihapus, atau bukan Pengeluaran/Pemasukan. ${USAGE_EDIT}`;
+    return replyLines(
+      `Tidak bisa mengedit ID ${id}: Transaksi tidak ada, sudah Dihapus, atau bukan Pengeluaran/Pemasukan.`,
+      USAGE_EDIT,
+    );
   }
 
   // Akun bisa berpindah, dan kita tidak tahu akun lama; tampilkan keduanya (FR-064).
   const accounts: Account[] = ['tunai', 'bank'];
   const balances = await deps.repo.getBalances();
-  return `Diubah: ${transactionLabel(edited)}, ID ${edited.id}. ${saldoSummary(accounts, balances)}${balanceWarning(accounts, balances)}`;
+  return replyLines('✅ Transaksi diubah', transactionLabel(edited), `ID ${edited.id}`, ...balanceLines(accounts, balances));
 }
 
 /** FR-062: hapus berlaku untuk Transaksi aktif apa pun, tidak membuang Riwayat undo (FR-053). */
@@ -406,11 +473,11 @@ async function deleteTransaction(args: string, deps: Deps): Promise<string> {
   if (id === null || rest.length > 0) return USAGE_HAPUS;
 
   const deleted = await deps.repo.deleteTransaction(id);
-  if (!deleted) return `Tidak ada Transaksi aktif dengan ID ${id}. ${USAGE_HAPUS}`;
+  if (!deleted) return replyLines(`Tidak ada Transaksi aktif dengan ID ${id}.`, USAGE_HAPUS);
 
   const accounts = affectedAccounts(deleted);
   const balances = await deps.repo.getBalances();
-  return `Dihapus: ${transactionLabel(deleted)}, ID ${deleted.id}. ${saldoSummary(accounts, balances)}${balanceWarning(accounts, balances)}`;
+  return replyLines('✅ Transaksi dihapus', transactionLabel(deleted), `ID ${deleted.id}`, ...balanceLines(accounts, balances));
 }
 
 /** ADR-0004: /k dan /m nama lain dari handler yang sudah ada, bukan jalur terpisah. */

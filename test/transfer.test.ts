@@ -56,6 +56,21 @@ describe('/transfer', () => {
     expect(text).toContain('Saldo tunai: 700.000');
   });
 
+  it('membalas bentuk multi-baris: status, detail, ID, kedua saldo (FR-038)', async () => {
+    const { repo } = memoryRepo({ tunai: 200_000, bank: 5_000_000 });
+    const text = await run('/transfer bank tunai 500rb', repo);
+
+    expect(text).toBe(
+      [
+        '✅ Transfer tercatat',
+        '🔁 Transfer bank ke tunai · 500.000',
+        'ID 1',
+        'Saldo bank: 4.500.000',
+        'Saldo tunai: 700.000',
+      ].join('\n'),
+    );
+  });
+
   it('tidak mengubah total saldo (FR-037)', async () => {
     const { repo } = memoryRepo({ tunai: 200_000, bank: 5_000_000 });
     const total = async () => (await run('/saldo', repo)).split('\n').find((line) => line.startsWith('Total:'));

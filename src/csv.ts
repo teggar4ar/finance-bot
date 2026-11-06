@@ -70,7 +70,7 @@ export function buildCsv(
     return {
       filename: 'keuangan-semua.csv',
       content: BOM + lines.join('\r\n'),
-      caption: `Export semua transaksi: ${count} baris.`,
+      caption: `Export semua transaksi\n${count} baris`,
     };
   }
 
@@ -79,6 +79,6 @@ export function buildCsv(
   return {
     filename: `keuangan-${year}-${monthText}.csv`,
     content: BOM + lines.join('\r\n'),
-    caption: `Export ${monthText}/${year}: ${count} baris.`,
+    caption: `Export ${monthText}/${year}\n${count} baris`,
   };
 }

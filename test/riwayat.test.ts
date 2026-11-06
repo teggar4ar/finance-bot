@@ -51,7 +51,7 @@ describe('/riwayat', () => {
 
     expect(text).toContain('#12');
     expect(text).toContain('03/11 08:15');
-    expect(text).toContain('Pengeluaran');
+    expect(text).toContain('💸 Pengeluaran');
     expect(text).toContain('tunai');
     expect(text).toContain('25.000');
     expect(text).toContain('makan siang');
@@ -93,7 +93,7 @@ describe('/riwayat', () => {
     });
     const text = await run('/riwayat', repo);
 
-    expect(text).toContain('saldo awal tunai 200.000');
+    expect(text).toContain('Saldo awal tunai · 200.000');
   });
 
   it('meminta 10 Transaksi terakhir (FR-060)', async () => {
@@ -111,7 +111,9 @@ describe('/riwayat', () => {
 
   it('mengatakan belum ada Transaksi', async () => {
     const { repo } = fakeRepo();
-    expect(await run('/riwayat', repo)).toBe('Belum ada transaksi.');
+    expect(await run('/riwayat', repo)).toBe(
+      ['Belum ada transaksi.', 'Catat dengan /pengeluaran atau /pemasukan.'].join('\n'),
+    );
   });
 });
 
@@ -133,7 +135,7 @@ describe('/edit', () => {
     const text = await run('/edit 12 makan malam 30rb @bank', repo);
 
     expect(recorded.edited).toEqual([{ id: 12, description: 'makan malam', amount: 30_000, account: 'bank' }]);
-    expect(text).toContain('Diubah');
+    expect(text).toContain('Transaksi diubah');
     expect(text).toContain('makan malam');
     expect(text).toContain('30.000');
   });
@@ -195,7 +197,7 @@ describe('/hapus', () => {
     const text = await run('/hapus 12', repo);
 
     expect(recorded.deleted).toEqual([12]);
-    expect(text).toContain('Dihapus');
+    expect(text).toContain('Transaksi dihapus');
     expect(text).toContain('makan siang');
     expect(text).toContain('Saldo tunai: 200.000');
   });

@@ -26,7 +26,7 @@ describe('/undo', () => {
     });
     const text = await run('/undo', repo);
 
-    expect(text).toContain('Dibatalkan');
+    expect(text).toContain('Transaksi dibatalkan');
     expect(text).toContain('makan siang');
     expect(text).toContain('25.000');
     expect(text).toContain('tunai');
@@ -85,12 +85,28 @@ describe('/undo', () => {
     });
     const text = await run('/undo', repo);
 
-    expect(text).toContain('Saldo awal tunai 200.000');
+    expect(text).toContain('Saldo awal tunai · 200.000');
     expect(text).toContain('Saldo tunai: 0');
   });
 
   it('mengatakan tidak ada yang bisa dibatalkan (FR-054)', async () => {
-    expect(await run('/undo', fakeRepo())).toBe('Tidak ada transaksi yang bisa dibatalkan.');
+    expect(await run('/undo', fakeRepo())).toBe(
+      ['Tidak ada transaksi yang bisa dibatalkan.', 'Lihat /riwayat untuk transaksi aktif.'].join('\n'),
+    );
+  });
+
+  it('membalas status, Transaksi, ID, dan saldo dalam baris terpisah (FR-054)', async () => {
+    const repo = fakeRepo({
+      undoLast: async () => expense,
+      getBalances: async () => ({ tunai: 175_000, bank: 0 }),
+    });
+
+    expect((await run('/undo', repo)).split('\n')).toEqual([
+      '✅ Transaksi dibatalkan',
+      '💸 Pengeluaran makan siang · 25.000 · tunai',
+      'ID 12',
+      'Saldo tunai: 175.000',
+    ]);
   });
 });
 
@@ -102,14 +118,16 @@ describe('/redo', () => {
     });
     const text = await run('/redo', repo);
 
-    expect(text).toContain('Dipulihkan');
+    expect(text).toContain('Transaksi dipulihkan');
     expect(text).toContain('makan siang');
     expect(text).toContain('ID 12');
     expect(text).toContain('Saldo tunai: 175.000');
   });
 
   it('mengatakan tidak ada yang bisa dipulihkan (FR-054)', async () => {
-    expect(await run('/redo', fakeRepo())).toBe('Tidak ada transaksi yang bisa dipulihkan.');
+    expect(await run('/redo', fakeRepo())).toBe(
+      ['Tidak ada transaksi yang bisa dipulihkan.', 'Lihat /riwayat untuk transaksi aktif.'].join('\n'),
+    );
   });
 
   it('/undo dan /redo memakai operasi yang berbeda', async () => {

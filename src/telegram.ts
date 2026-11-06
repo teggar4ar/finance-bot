@@ -37,7 +37,7 @@ export function createBot(token: string, allowedUserId: number, deps: Deps): Bot
       }
     } catch (error) {
       log('error', 'command_failed', { cmd, error: describeError(error, token) });
-      await ctx.reply('Terjadi kesalahan saat memproses command. Coba lagi.');
+      await ctx.reply('⚠️ Terjadi kesalahan saat memproses command.\nCoba lagi.');
     }
   });
 

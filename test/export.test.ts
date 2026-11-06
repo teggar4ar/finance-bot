@@ -57,7 +57,7 @@ describe('/export', () => {
     expect(ranges).toEqual([{ start: null, end: null }]);
     expect(carryStarts).toEqual([]);
     expect(file.filename).toBe('keuangan-semua.csv');
-    expect(file.caption).toBe('Export semua transaksi: 1 baris.');
+    expect(file.caption).toBe('Export semua transaksi\n1 baris');
     expect(file.content).toContain('7,2026-10-05 08:00:00,tunai,expense,makan siang,0,25000,175000,175000');
   });
 
@@ -68,7 +68,7 @@ describe('/export', () => {
     expect(ranges).toEqual([{ start: '2026-09-30T17:00:00.000Z', end: '2026-10-31T17:00:00.000Z' }]);
     expect(carryStarts).toEqual(['2026-09-30T17:00:00.000Z']);
     expect(file.filename).toBe('keuangan-2026-10.csv');
-    expect(file.caption).toBe('Export 10/2026: 2 baris.');
+    expect(file.caption).toBe('Export 10/2026\n2 baris');
     expect(file.content).toContain(',2026-10-01 00:00:00,tunai,opening,Saldo awal periode,200000,0,200000,200000');
   });
 
@@ -77,7 +77,7 @@ describe('/export', () => {
     const file = await csv('/export 2026-10', repo);
 
     expect(file.content.split('\r\n')).toHaveLength(1);
-    expect(file.caption).toBe('Export 10/2026: 0 baris.');
+    expect(file.caption).toBe('Export 10/2026\n0 baris');
   });
 
   it.each(['/export abc', '/export 2026-13', '/export 2026-10-15', '/export 2026-1'])(
