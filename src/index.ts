@@ -23,12 +23,25 @@ async function main(): Promise<void> {
   const bot = createBot(config.botToken, config.allowedUserId, deps);
 
   let stopping = false;
+  let running: Promise<void> | undefined;
   const shutdown = async (signal: string): Promise<void> => {
     if (stopping) return;
     stopping = true;
     log('info', 'shutdown', { signal });
-    await bot.stop();
-    await pool.end();
+    try {
+      // bot.stop() berhenti menarik update baru tapi tidak menunggu middleware
+      // yang sedang jalan; `running` (promise bot.start()) selesai setelah
+      // middleware in-flight tuntas (dokumentasi grammY). Lalu tutup pool.
+      await bot.stop();
+      await running;
+    } catch (error) {
+      log('error', 'shutdown_stop_failed', { error: describeError(error, config.botToken) });
+    }
+    try {
+      await pool.end();
+    } catch (error) {
+      log('error', 'shutdown_pool_failed', { error: describeError(error, config.botToken) });
+    }
     process.exit(0);
   };
   process.once('SIGTERM', () => void shutdown('SIGTERM'));
@@ -45,7 +58,8 @@ async function main(): Promise<void> {
 
   await bot.api.getMe();
   log('info', 'startup', { mode: 'polling' });
-  await bot.start();
+  running = bot.start();
+  await running;
 }
 
 void main();
