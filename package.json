@@ -4,7 +4,7 @@
   "private": true,
   "description": "Bot Telegram pencatat keuangan pribadi",
   "engines": {
-    "node": "22.x"
+    "node": "26.x"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
