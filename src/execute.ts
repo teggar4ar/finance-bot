@@ -333,7 +333,7 @@ async function summary(target: Period | null, deps: Deps): Promise<string> {
   ];
 
   if (target.month) {
-    const over = await daysOverBudget(target, target.month, deps);
+    const over = await daysOverBudget(target, deps);
     // FR-076: baris hanya bila ada hari yang lewat; `0` saat Budget baru berlaku sebagian bulan tidak berguna.
     if (over !== null && over > 0) lines.push(`Hari melewati budget: ${over}`);
   }
@@ -345,11 +345,9 @@ async function summary(target: Period | null, deps: Deps): Promise<string> {
  * FR-076: jumlah hari WIB dalam bulan yang Pengeluarannya melewati Budget yang berlaku hari itu.
  * `null` bila belum ada Budget sama sekali; hari tanpa Pengeluaran tidak mungkin melewati Budget (amount > 0).
  */
-async function daysOverBudget(
-  target: Period,
-  { year, month }: { year: number; month: number },
-  deps: Deps,
-): Promise<number | null> {
+async function daysOverBudget(target: Period, deps: Deps): Promise<number | null> {
+  // Pemanggil hanya masuk saat target.month terisi (ringkasan bulanan), jadi bulan dijamin ada.
+  const { year, month } = target.month!;
   const end = `${year}-${pad(month)}-${pad(daysInMonth(year, month))}`;
   const budgets = await deps.repo.getBudgetsUpTo(end);
   if (budgets.length === 0) return null;
@@ -384,13 +382,15 @@ async function budgetUsage(deps: Deps): Promise<BudgetUsage | null> {
   return { budget, used: await deps.repo.getExpenseUsed(today.start, today.end) };
 }
 
+/** FR-085: satu jalur untuk baris `Sisa:`/`Kelebihan:` — dipakai `/budget` dan konfirmasi Pengeluaran. */
+function remainingLine(left: number): string {
+  return left < 0 ? `Kelebihan: ${formatAmount(-left)}` : `Sisa: ${formatAmount(left)}`;
+}
+
 /** FR-085, FR-086: pemakaian di setiap konfirmasi Pengeluaran; tepat 100% masih lembut. */
 function budgetLines({ budget, used }: BudgetUsage): string[] {
   const left = budget - used;
-  const lines = [
-    `Budget hari ini: ${formatAmount(used)} / ${formatAmount(budget)}`,
-    left < 0 ? `Kelebihan: ${formatAmount(-left)}` : `Sisa: ${formatAmount(left)}`,
-  ];
+  const lines = [`Budget hari ini: ${formatAmount(used)} / ${formatAmount(budget)}`, remainingLine(left)];
   // Dibagi dulu supaya perkaliannya tidak melewati batas bilangan aman di Nominal besar.
   if ((used / budget) * 100 < SOFT_WARNING_PERCENT) return lines;
 
@@ -409,7 +409,7 @@ async function dailyBudget(args: string, deps: Deps): Promise<string> {
     return replyLines(
       `Budget harian: ${formatAmount(usage.budget)}`,
       `Pemakaian hari ini: ${formatAmount(usage.used)}`,
-      left < 0 ? `Kelebihan: ${formatAmount(-left)}` : `Sisa: ${formatAmount(left)}`,
+      remainingLine(left),
     );
   }
 
