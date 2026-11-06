@@ -147,7 +147,7 @@ Priority: **M** = Must have, **S** = Should have.
 | FR-095 | Opening balances shall be exported as the first rows of the ledger, one per account that has one, with type `opening`, regardless of when they were declared. They are row zero (ADR-0003); their `date` is the declaration time. | M |
 | FR-096 | Undone and deleted transactions shall not be exported. | M |
 | FR-097 | A monthly export shall start with one synthetic `opening` row per account, representing the accumulated balance before the month, so running balances stay correct. | M |
-| FR-098 | Timestamps shall be in WIB. Amounts shall be plain integers without thousands separators. | M |
+| FR-098 | Timestamps shall be in WIB. Amounts shall be plain numbers with no thousands separators, using a dot as the decimal separator; the fractional `.dd` part appears only when the sen value is non-zero (`1321765.03`, `25000`), per ADR-0005. | M |
 | FR-099 | The file shall be UTF-8 with BOM and use a comma as the field delimiter. Fields containing commas, quotes, or line breaks (e.g. descriptions) shall be quoted and escaped according to standard CSV rules (RFC 4180). | M |
 | FR-101 | The export file shall be named `keuangan-YYYY-MM.csv` for a monthly export and `keuangan-semua.csv` for a full export, and shall be sent with a short caption stating the number of rows. | S |
 | FR-102 | A month with no transactions shall still produce a valid CSV with the header row and any applicable carry-in rows. | S |

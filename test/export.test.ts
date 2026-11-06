@@ -19,9 +19,9 @@ const entry: LedgerEntry = {
   type: 'expense',
   description: 'makan siang',
   moneyIn: 0,
-  moneyOut: 25_000,
-  accountBalance: 175_000,
-  totalBalance: 175_000,
+  moneyOut: 2_500_000,
+  accountBalance: 17_500_000,
+  totalBalance: 17_500_000,
 };
 
 /** Merekam argumen rentang supaya batas bulan WIB bisa diperiksa. */
@@ -62,7 +62,7 @@ describe('/export', () => {
   });
 
   it('membatasi ke satu bulan WIB dan menambah Baris pembuka periode (FR-091, FR-097)', async () => {
-    const { repo, ranges, carryStarts } = fakeRepo([entry], [{ account: 'tunai', balance: 200_000 }]);
+    const { repo, ranges, carryStarts } = fakeRepo([entry], [{ account: 'tunai', balance: 20_000_000 }]);
     const file = await csv('/export 2026-10', repo);
 
     expect(ranges).toEqual([{ start: '2026-09-30T17:00:00.000Z', end: '2026-10-31T17:00:00.000Z' }]);
@@ -70,6 +70,21 @@ describe('/export', () => {
     expect(file.filename).toBe('keuangan-2026-10.csv');
     expect(file.caption).toBe('Export 10/2026\n2 baris');
     expect(file.content).toContain(',2026-10-01 00:00:00,tunai,opening,Saldo awal periode,200000,0,200000,200000');
+  });
+
+  it('menulis kolom uang sebagai desimal bertitik bila sen ≠ 0 (ADR-0005)', async () => {
+    const fractional: LedgerEntry = {
+      ...entry,
+      moneyIn: 0,
+      moneyOut: 2_500_050,
+      accountBalance: 17_499_950,
+      totalBalance: 17_499_950,
+    };
+    const { repo } = fakeRepo([fractional], [{ account: 'tunai', balance: 19_999_950 }]);
+    const file = await csv('/export 2026-10', repo);
+
+    expect(file.content).toContain('makan siang,0,25000.50,174999.50,174999.50');
+    expect(file.content).toContain(',2026-10-01 00:00:00,tunai,opening,Saldo awal periode,199999.50,0,199999.50,199999.50');
   });
 
   it('bulan tanpa Transaksi tetap menghasilkan CSV sah berisi header (FR-102)', async () => {

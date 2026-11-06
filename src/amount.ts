@@ -3,6 +3,8 @@
  * Semua nominal berbasis integer **sen** (1 rupiah = 100 sen), ADR-0005.
  * `null` berarti masukan tidak sah.
  */
+import { pad } from './wib';
+
 const SUFFIXES: Record<string, number> = {
   rb: 1_000,
   k: 1_000,
@@ -18,6 +20,16 @@ const MAX_AMOUNT = 999_999_999_999_999;
 
 /** Nilai pecahan desimal `dd` (2 digit) jadi sen: `'5'` -> 50, `'05'` -> 5. */
 const fractionToSen = (fraction: string): number => Number(fraction.padEnd(2, '0'));
+
+/**
+ * Pecah nilai sen integer jadi rupiah bulat (`whole`, tanpa tanda) + sen (`cents`, 0–99).
+ * Satu sumber aturan pemecahan untuk formatter chat (`formatAmount`) dan CSV (`csv.ts`).
+ */
+export function splitSen(sen: number): { whole: number; cents: number } {
+  const abs = Math.abs(sen);
+  const cents = abs % 100;
+  return { whole: (abs - cents) / 100, cents };
+}
 
 export function parseAmount(text: string): number | null {
   const raw = text.trim().toLowerCase().replace(/^rp\.?\s*/, '');
@@ -45,9 +57,7 @@ export function parseAmount(text: string): number | null {
 /** FR-039/ADR-0005: titik ribuan; `,dd` hanya bila sen ≠ 0. */
 export function formatAmount(sen: number): string {
   const sign = sen < 0 ? '-' : '';
-  const abs = Math.abs(sen);
-  const cents = abs % 100;
-  const whole = (abs - cents) / 100;
+  const { whole, cents } = splitSen(sen);
   const wholeText = String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-  return cents === 0 ? `${sign}${wholeText}` : `${sign}${wholeText},${String(cents).padStart(2, '0')}`;
+  return cents === 0 ? `${sign}${wholeText}` : `${sign}${wholeText},${pad(cents)}`;
 }

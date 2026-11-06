@@ -1,4 +1,5 @@
 import type { Account, CarryIn, LedgerEntry } from './repo';
+import { splitSen } from './amount';
 import { pad, wibDate, wibDateTime } from './wib';
 
 /** Hasil `/export`: isi file plus nama dan caption untuk adapter Telegram (FR-101). */
@@ -20,7 +21,18 @@ function field(value: string | number): string {
 
 const row = (values: readonly (string | number)[]) => values.map(field).join(',');
 
-/** FR-092, FR-093: satu Baris ledger apa adanya; Nominal tetap integer tanpa pemisah. */
+/**
+ * FR-098/ADR-0005: nilai uang (integer sen) ditulis sebagai desimal bertitik
+ * agar delimiter-safe untuk CSV (`1321765.03`, `25000`). Titik ribuan sengaja
+ * tidak dipakai; `.dd` hanya muncul bila sen ≠ 0 — beda dari chat (koma).
+ */
+function money(sen: number): string {
+  const sign = sen < 0 ? '-' : '';
+  const { whole, cents } = splitSen(sen);
+  return cents === 0 ? `${sign}${whole}` : `${sign}${whole}.${pad(cents)}`;
+}
+
+/** FR-092, FR-093: satu Baris ledger; kolom uang memakai desimal bertitik. */
 function ledgerRow(entry: LedgerEntry): string {
   return row([
     entry.id,
@@ -28,10 +40,10 @@ function ledgerRow(entry: LedgerEntry): string {
     entry.account,
     entry.type,
     entry.description,
-    entry.moneyIn,
-    entry.moneyOut,
-    entry.accountBalance,
-    entry.totalBalance,
+    money(entry.moneyIn),
+    money(entry.moneyOut),
+    money(entry.accountBalance),
+    money(entry.totalBalance),
   ]);
 }
 
@@ -46,10 +58,10 @@ function carryInRows(carryIn: readonly CarryIn[], start: Date): string[] {
       account,
       'opening',
       'Saldo awal periode',
-      balance > 0 ? balance : 0,
-      balance < 0 ? -balance : 0,
-      balance,
-      total,
+      money(balance > 0 ? balance : 0),
+      money(balance < 0 ? -balance : 0),
+      money(balance),
+      money(total),
     ]),
   );
 }
