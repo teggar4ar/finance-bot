@@ -30,8 +30,8 @@ describe('/undo', () => {
     expect(text).toContain('makan siang');
     expect(text).toContain('25.000');
     expect(text).toContain('tunai');
-    expect(text).toContain('ID 12');
-    expect(text).toContain('Saldo tunai: 175.000');
+    expect(text).toContain('ID: <code>12</code>');
+    expect(text).toContain('Saldo tunai: <code>175.000</code>');
   });
 
   it('menyebut Akun Pemasukan yang dibatalkan (FR-031)', async () => {
@@ -48,9 +48,9 @@ describe('/undo', () => {
     });
     const text = await run('/undo', repo);
 
-    expect(text).toContain('Pemasukan gaji');
+    expect(text).toContain('Pemasukan: gaji');
     expect(text).toContain('bank');
-    expect(text).toContain('Saldo bank: 100.000');
+    expect(text).toContain('Saldo bank: <code>100.000</code>');
   });
 
   it('menyebut kedua Akun saat Transfer dibatalkan (FR-036)', async () => {
@@ -67,9 +67,9 @@ describe('/undo', () => {
     });
     const text = await run('/undo', repo);
 
-    expect(text).toContain('Transfer bank ke tunai');
-    expect(text).toContain('Saldo bank: 5.000.000');
-    expect(text).toContain('Saldo tunai: 200.000');
+    expect(text).toContain('Arah: bank ke tunai');
+    expect(text).toContain('Saldo bank: <code>5.000.000</code>');
+    expect(text).toContain('Saldo tunai: <code>200.000</code>');
   });
 
   it('berlaku untuk Saldo awal (FR-050)', async () => {
@@ -85,13 +85,14 @@ describe('/undo', () => {
     });
     const text = await run('/undo', repo);
 
-    expect(text).toContain('Saldo awal tunai · 200.000');
-    expect(text).toContain('Saldo tunai: 0');
+    expect(text).toContain('Saldo awal tunai');
+    expect(text).toContain('Nominal: <code>200.000</code>');
+    expect(text).toContain('Saldo tunai: <code>0</code>');
   });
 
   it('mengatakan tidak ada yang bisa dibatalkan (FR-054)', async () => {
     expect(await run('/undo', fakeRepo())).toBe(
-      ['Tidak ada transaksi yang bisa dibatalkan.', 'Lihat /riwayat untuk transaksi aktif.'].join('\n'),
+      ['<b>Tidak ada transaksi yang bisa dibatalkan.</b>', '', 'Lihat /riwayat untuk transaksi aktif.'].join('\n'),
     );
   });
 
@@ -102,8 +103,9 @@ describe('/undo', () => {
     });
     const text = await run('/undo', repo);
 
-    expect(text).toContain('💸 Pengeluaran makan siang · 1.000,50 · tunai');
-    expect(text).toContain('Saldo tunai: 250.000,75');
+    expect(text).toContain('Pengeluaran: makan siang');
+    expect(text).toContain('Nominal: <code>1.000,50</code>');
+    expect(text).toContain('Saldo tunai: <code>250.000,75</code>');
   });
 
   it('membalas status, Transaksi, ID, dan saldo dalam baris terpisah (FR-054)', async () => {
@@ -113,10 +115,14 @@ describe('/undo', () => {
     });
 
     expect((await run('/undo', repo)).split('\n')).toEqual([
-      '✅ Transaksi dibatalkan',
-      '💸 Pengeluaran makan siang · 25.000 · tunai',
-      'ID 12',
-      'Saldo tunai: 175.000',
+      '✅ <b>Transaksi dibatalkan</b>',
+      '',
+      'ID: <code>12</code>',
+      'Pengeluaran: makan siang',
+      'Nominal: <code>25.000</code>',
+      'Akun: tunai',
+      '',
+      'Saldo tunai: <code>175.000</code>',
     ]);
   });
 });
@@ -131,13 +137,13 @@ describe('/redo', () => {
 
     expect(text).toContain('Transaksi dipulihkan');
     expect(text).toContain('makan siang');
-    expect(text).toContain('ID 12');
-    expect(text).toContain('Saldo tunai: 175.000');
+    expect(text).toContain('ID: <code>12</code>');
+    expect(text).toContain('Saldo tunai: <code>175.000</code>');
   });
 
   it('mengatakan tidak ada yang bisa dipulihkan (FR-054)', async () => {
     expect(await run('/redo', fakeRepo())).toBe(
-      ['Tidak ada transaksi yang bisa dipulihkan.', 'Lihat /riwayat untuk transaksi aktif.'].join('\n'),
+      ['<b>Tidak ada transaksi yang bisa dipulihkan.</b>', '', 'Lihat /riwayat untuk transaksi aktif.'].join('\n'),
     );
   });
 
@@ -148,8 +154,9 @@ describe('/redo', () => {
     });
     const text = await run('/redo', repo);
 
-    expect(text).toContain('💸 Pengeluaran makan siang · 1.000,50 · tunai');
-    expect(text).toContain('Saldo tunai: 250.000,75');
+    expect(text).toContain('Pengeluaran: makan siang');
+    expect(text).toContain('Nominal: <code>1.000,50</code>');
+    expect(text).toContain('Saldo tunai: <code>250.000,75</code>');
   });
 
   it('/undo dan /redo memakai operasi yang berbeda', async () => {

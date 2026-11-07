@@ -22,7 +22,7 @@ describe('buildCsv', () => {
     expect(buildCsv([])).toEqual({
       filename: 'keuangan-semua.csv',
       content: `\uFEFF${HEADER}`,
-      caption: 'Export semua transaksi\n0 baris',
+      caption: '📄 <b>Export semua transaksi</b>\n\n<code>0</code> baris',
     });
   });
 
@@ -31,7 +31,7 @@ describe('buildCsv', () => {
     const row = '7,2026-11-03 08:05:09,tunai,expense,makan siang,0,25000,-25000,-25000';
 
     expect(file.content).toBe(`\uFEFF${HEADER}\r\n${row}`);
-    expect(file.caption).toBe('Export semua transaksi\n1 baris');
+    expect(file.caption).toBe('📄 <b>Export semua transaksi</b>\n\n<code>1</code> baris');
   });
 
   it('menulis sen sebagai .dd hanya bila sen ≠ 0 (ADR-0005)', () => {
@@ -82,7 +82,7 @@ describe('buildCsv', () => {
     const [, firstCarry, secondCarry] = file.content.split('\r\n');
 
     expect(file.filename).toBe('keuangan-2026-10.csv');
-    expect(file.caption).toBe('Export 10/2026\n3 baris');
+    expect(file.caption).toBe('📄 <b>Export 10/2026</b>\n\n<code>3</code> baris');
     expect(firstCarry).toBe(',2026-10-01 00:00:00,tunai,opening,Saldo awal periode,300000,0,300000,400000');
     expect(secondCarry).toBe(',2026-10-01 00:00:00,bank,opening,Saldo awal periode,100000,0,100000,400000');
   });

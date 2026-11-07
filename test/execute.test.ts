@@ -53,13 +53,13 @@ describe('execute', () => {
   });
 
   it('daftar command dikelompokkan per kategori (FR-100)', () => {
-    for (const category of ['Catat', 'Lihat', 'Ubah', 'Budget dan export']) {
-      expect(HELP).toContain(`\n${category}\n`);
+    for (const category of ['📝 Catat', '👀 Lihat', '✏️ Ubah', '⚙️ Budget dan export']) {
+      expect(HELP).toContain(`<b>${category}</b>`);
     }
   });
 
-  it('petunjuk command tidak dikenal dua baris dan menunjuk /help (FR-103)', () => {
-    expect(HINT.split('\n')).toHaveLength(2);
+  it('petunjuk command tidak dikenal menunjuk /help (FR-103)', () => {
+    expect(HINT).toContain('<b>Command tidak dikenal.</b>');
     expect(HINT).toContain('/help');
   });
 

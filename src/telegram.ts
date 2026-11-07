@@ -30,14 +30,14 @@ export function createBot(token: string, allowedUserId: number, deps: Deps): Bot
     try {
       const reply = await execute(command, deps);
       if (typeof reply === 'string') {
-        await ctx.reply(reply);
+        await ctx.reply(reply, { parse_mode: 'HTML' });
       } else {
         const file = new InputFile(Buffer.from(reply.content, 'utf8'), reply.filename);
-        await ctx.replyWithDocument(file, { caption: reply.caption });
+        await ctx.replyWithDocument(file, { caption: reply.caption, parse_mode: 'HTML' });
       }
     } catch (error) {
       log('error', 'command_failed', { cmd, error: describeError(error, token) });
-      await ctx.reply('⚠️ Terjadi kesalahan saat memproses command.\nCoba lagi.');
+      await ctx.reply('⚠️ <b>Terjadi kesalahan saat memproses command.</b>\n\nCoba lagi.', { parse_mode: 'HTML' });
     }
   });
 

@@ -51,17 +51,17 @@ describe('/budget', () => {
     const { repo } = fakeRepo(15_000_000, 2_500_000);
     const text = await run('/budget', repo);
 
-    expect(text).toContain('Budget harian: 150.000');
-    expect(text).toContain('Pemakaian hari ini: 25.000');
-    expect(text).toContain('Sisa: 125.000');
+    expect(text).toContain('Nominal: <code>150.000</code>');
+    expect(text).toContain('Pemakaian hari ini: <code>25.000</code>');
+    expect(text).toContain('Sisa: <code>125.000</code>');
   });
 
   it('menampilkan kelebihan bila pemakaian melewati Budget (FR-081)', async () => {
     const { repo } = fakeRepo(15_000_000, 17_500_000);
     const text = await run('/budget', repo);
 
-    expect(text).toContain('Pemakaian hari ini: 175.000');
-    expect(text).toContain('Kelebihan: 25.000');
+    expect(text).toContain('Pemakaian hari ini: <code>175.000</code>');
+    expect(text).toContain('Kelebihan: <code>25.000</code>');
     expect(text).not.toContain('Sisa:');
   });
 
@@ -69,7 +69,7 @@ describe('/budget', () => {
     const { repo } = fakeRepo(10_000_000, 10_000_000);
     const text = await run('/budget', repo);
 
-    expect(text).toContain('Sisa: 0');
+    expect(text).toContain('Sisa: <code>0</code>');
     expect(text).not.toContain('Kelebihan');
   });
 
@@ -84,18 +84,18 @@ describe('/budget', () => {
     const { repo } = fakeRepo(15_000_050, 2_500_075);
     const text = await run('/budget', repo);
 
-    expect(text).toContain('Budget harian: 150.000,50');
-    expect(text).toContain('Pemakaian hari ini: 25.000,75');
-    expect(text).toContain('Sisa: 124.999,75');
+    expect(text).toContain('Nominal: <code>150.000,50</code>');
+    expect(text).toContain('Pemakaian hari ini: <code>25.000,75</code>');
+    expect(text).toContain('Sisa: <code>124.999,75</code>');
   });
 
   it('menampilkan Kelebihan ber-sen (ADR-0005)', async () => {
     const { repo } = fakeRepo(15_000_050, 17_500_075);
     const text = await run('/budget', repo);
 
-    expect(text).toContain('Budget harian: 150.000,50');
-    expect(text).toContain('Pemakaian hari ini: 175.000,75');
-    expect(text).toContain('Kelebihan: 25.000,25');
+    expect(text).toContain('Nominal: <code>150.000,50</code>');
+    expect(text).toContain('Pemakaian hari ini: <code>175.000,75</code>');
+    expect(text).toContain('Kelebihan: <code>25.000,25</code>');
     expect(text).not.toContain('Sisa:');
   });
 
@@ -133,16 +133,18 @@ describe('baris Budget di balasan Pengeluaran', () => {
     const { repo } = fakeRepo(15_000_000, 17_500_000);
     const text = await run('/pengeluaran makan siang 25rb', repo);
 
-    expect(text).toContain('Budget hari ini: 175.000 / 150.000');
-    expect(text).toContain('Kelebihan: 25.000');
+    expect(text).toContain('Budget hari ini: <code>175.000 / 150.000</code>');
+    expect(text).toContain('Kelebihan: <code>25.000</code>');
   });
 
   it('baris Budget datang setelah saldo (FR-085)', async () => {
     const { repo } = fakeRepo(15_000_000, 2_500_000);
     const lines = (await run('/pengeluaran makan siang 25rb', repo)).split('\n');
 
-    expect(lines.indexOf('Saldo tunai: 0')).toBeLessThan(lines.indexOf('Budget hari ini: 25.000 / 150.000'));
-    expect(lines).toContain('Sisa: 125.000');
+    expect(lines.indexOf('Saldo tunai: <code>0</code>')).toBeLessThan(
+      lines.indexOf('Budget hari ini: <code>25.000 / 150.000</code>'),
+    );
+    expect(lines).toContain('Sisa: <code>125.000</code>');
   });
 
   it('tidak menampilkan apa pun bila belum ada Budget (FR-088)', async () => {
@@ -164,14 +166,14 @@ describe('baris Budget di balasan Pengeluaran', () => {
     const text = await run('/pengeluaran makan siang 25rb', repo);
 
     expect(text).toContain('Budget hari ini');
-    expect(text).not.toContain('Peringatan');
+    expect(text).not.toContain('<blockquote>');
   });
 
   it('peringatan lembut mulai tepat 80% (FR-086, A2)', async () => {
     const { repo } = fakeRepo(10_000_000, 8_000_000);
     const text = await run('/pengeluaran makan siang 25rb', repo);
 
-    expect(text).toContain('Peringatan: pemakaian budget hari ini 80%.');
+    expect(text).toContain('<blockquote>⚠️ <i>Pemakaian budget hari ini 80%.</i></blockquote>');
     expect(text).not.toContain('terlampaui');
   });
 
@@ -179,7 +181,7 @@ describe('baris Budget di balasan Pengeluaran', () => {
     const { repo } = fakeRepo(10_000_000, 10_000_000);
     const text = await run('/pengeluaran makan siang 25rb', repo);
 
-    expect(text).toContain('Peringatan: pemakaian budget hari ini 100%.');
+    expect(text).toContain('<blockquote>⚠️ <i>Pemakaian budget hari ini 100%.</i></blockquote>');
     expect(text).not.toContain('terlampaui');
   });
 
@@ -187,16 +189,18 @@ describe('baris Budget di balasan Pengeluaran', () => {
     const { repo } = fakeRepo(15_000_000, 17_500_000);
     const text = await run('/pengeluaran makan siang 25rb', repo);
 
-    expect(text).toContain('Peringatan: pemakaian budget hari ini 116%, budget harian terlampaui.');
-    expect(text.split('\n').at(-1)).toBe('⚠️ Peringatan: pemakaian budget hari ini 116%, budget harian terlampaui.');
+    expect(text).toContain('<blockquote>⚠️ <i>Pemakaian budget hari ini 116%, budget harian terlampaui.</i></blockquote>');
+    expect(text.split('\n').at(-1)).toBe(
+      '<blockquote>⚠️ <i>Pemakaian budget hari ini 116%, budget harian terlampaui.</i></blockquote>',
+    );
   });
 
   it('persentase Peringatan benar saat Budget dan pemakaian ber-sen (ADR-0005)', async () => {
     const { repo } = fakeRepo(15_000_050, 17_500_075);
     const text = await run('/pengeluaran makan siang 25rb', repo);
 
-    expect(text).toContain('Budget hari ini: 175.000,75 / 150.000,50');
-    expect(text).toContain('Peringatan: pemakaian budget hari ini 116%, budget harian terlampaui.');
+    expect(text).toContain('Budget hari ini: <code>175.000,75 / 150.000,50</code>');
+    expect(text).toContain('<blockquote>⚠️ <i>Pemakaian budget hari ini 116%, budget harian terlampaui.</i></blockquote>');
   });
 
   it('/edit dan /hapus tidak menampilkan baris Budget', async () => {

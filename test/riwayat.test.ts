@@ -73,7 +73,7 @@ describe('/riwayat', () => {
     });
     const text = await run('/riwayat', repo);
 
-    expect(text).toContain('bank -> tunai');
+    expect(text).toContain('bank -&gt; tunai');
     expect(text).toContain('500.000');
   });
 
@@ -93,7 +93,8 @@ describe('/riwayat', () => {
     });
     const text = await run('/riwayat', repo);
 
-    expect(text).toContain('Saldo awal tunai · 200.000');
+    expect(text).toContain('Saldo awal tunai');
+    expect(text).toContain('<code>200.000</code>');
   });
 
   it('meminta 10 Transaksi terakhir (FR-060)', async () => {
@@ -112,7 +113,7 @@ describe('/riwayat', () => {
   it('mengatakan belum ada Transaksi', async () => {
     const { repo } = fakeRepo();
     expect(await run('/riwayat', repo)).toBe(
-      ['Belum ada transaksi.', 'Catat dengan /pengeluaran atau /pemasukan.'].join('\n'),
+      ['Belum ada transaksi.', '', 'Catat dengan /pengeluaran atau /pemasukan.'].join('\n'),
     );
   });
 });
@@ -148,7 +149,9 @@ describe('/edit', () => {
     const text = await run('/edit 12 makan malam 30.000,50 @bank', repo);
 
     expect(recorded.edited).toEqual([{ id: 12, description: 'makan malam', amount: 3_000_050, account: 'bank' }]);
-    expect(text).toContain('makan malam · 30.000,50 · bank');
+    expect(text).toContain('Pengeluaran: makan malam');
+    expect(text).toContain('Nominal: <code>30.000,50</code>');
+    expect(text).toContain('Akun: bank');
   });
 
   it('tanpa flag Akun membiarkan akun lama (FR-061)', async () => {
@@ -165,15 +168,15 @@ describe('/edit', () => {
     });
     const text = await run('/edit 12 makan malam 30rb @bank', repo);
 
-    expect(text).toContain('Saldo tunai: 170.000');
-    expect(text).toContain('Saldo bank: 1.000.000');
+    expect(text).toContain('Saldo tunai: <code>170.000</code>');
+    expect(text).toContain('Saldo bank: <code>1.000.000</code>');
   });
 
   it('menolak Transfer dan Saldo awal dengan pesan jelas (FR-065)', async () => {
     const { repo } = fakeRepo({ editTransaction: async () => null });
     const text = await run('/edit 11 makan malam 30rb', repo);
 
-    expect(text).toContain('ID 11');
+    expect(text).toContain('ID: <code>11</code>');
     expect(text).toContain('bukan Pengeluaran/Pemasukan');
     expect(text).toContain('/edit');
   });
@@ -194,8 +197,7 @@ describe('/edit', () => {
     });
     const text = await run('/edit 12 makan malam 30rb', repo);
 
-    expect(text).toContain('Peringatan');
-    expect(text).toContain('tunai');
+    expect(text).toContain('<blockquote>⚠️ <i>Saldo tunai negatif.</i></blockquote>');
   });
 });
 
@@ -210,7 +212,7 @@ describe('/hapus', () => {
     expect(recorded.deleted).toEqual([12]);
     expect(text).toContain('Transaksi dihapus');
     expect(text).toContain('makan siang');
-    expect(text).toContain('Saldo tunai: 200.000');
+    expect(text).toContain('Saldo tunai: <code>200.000</code>');
   });
 
   it('membalas dengan Nominal dan saldo ber-sen saat dihapus (ADR-0005)', async () => {
@@ -220,8 +222,9 @@ describe('/hapus', () => {
     });
     const text = await run('/hapus 12', repo);
 
-    expect(text).toContain('makan siang · 1.000,50 · tunai');
-    expect(text).toContain('Saldo tunai: 250.000,75');
+    expect(text).toContain('Pengeluaran: makan siang');
+    expect(text).toContain('Nominal: <code>1.000,50</code>');
+    expect(text).toContain('Saldo tunai: <code>250.000,75</code>');
   });
 
   it('membalas kedua Akun saat Transfer dihapus (FR-064)', async () => {
@@ -238,15 +241,16 @@ describe('/hapus', () => {
     });
     const text = await run('/hapus 11', repo);
 
-    expect(text).toContain('Saldo bank: 5.000.000');
-    expect(text).toContain('Saldo tunai: 200.000');
+    expect(text).toContain('Saldo bank: <code>5.000.000</code>');
+    expect(text).toContain('Saldo tunai: <code>200.000</code>');
   });
 
   it('ID tidak ada atau sudah Dihapus dibalas error jelas (FR-063)', async () => {
     const { repo } = fakeRepo({ deleteTransaction: async () => null });
     const text = await run('/hapus 99', repo);
 
-    expect(text).toContain('Tidak ada Transaksi aktif dengan ID 99');
+    expect(text).toContain('ID: <code>99</code>');
+    expect(text).toContain('<b>Tidak ada Transaksi aktif.</b>');
     expect(text).toContain('/hapus');
   });
 
@@ -263,7 +267,6 @@ describe('/hapus', () => {
     });
     const text = await run('/hapus 12', repo);
 
-    expect(text).toContain('Peringatan');
-    expect(text).toContain('tunai');
+    expect(text).toContain('<blockquote>⚠️ <i>Saldo tunai negatif.</i></blockquote>');
   });
 });

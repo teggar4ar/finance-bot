@@ -49,8 +49,8 @@ describe('/pengeluaran', () => {
     expect(text).toContain('makan siang');
     expect(text).toContain('25.000');
     expect(text).toContain('tunai');
-    expect(text).toContain('ID 1');
-    expect(text).toContain('Saldo tunai: 175.000');
+    expect(text).toContain('ID: <code>1</code>');
+    expect(text).toContain('Saldo tunai: <code>175.000</code>');
   });
 
   it('mencatat dari bank lewat flag @bank (FR-032)', async () => {
@@ -58,7 +58,7 @@ describe('/pengeluaran', () => {
     const text = await run('/pengeluaran spotify 55rb @bank', repo);
 
     expect(entries).toEqual([{ account: 'bank', type: 'expense', amount: 5_500_000, description: 'spotify' }]);
-    expect(text).toContain('Saldo bank: 945.000');
+    expect(text).toContain('Saldo bank: <code>945.000</code>');
   });
 
   it('menerima flag @tunai eksplisit (FR-032)', async () => {
@@ -94,9 +94,8 @@ describe('/pengeluaran', () => {
     const { repo } = memoryRepo({ tunai: 1_000_000, bank: 0 });
     const text = await run('/pengeluaran makan siang 25rb', repo);
 
-    expect(text).toContain('Peringatan');
-    expect(text).toContain('tunai');
-    expect(text.split('\n').at(-1)).toBe('⚠️ Peringatan: saldo tunai negatif.');
+    expect(text).toContain('<blockquote>⚠️ <i>Saldo tunai negatif.</i></blockquote>');
+    expect(text.split('\n').at(-1)).toBe('<blockquote>⚠️ <i>Saldo tunai negatif.</i></blockquote>');
   });
 
   it('membalas bentuk multi-baris: status, detail, ID, saldo (FR-038)', async () => {
@@ -104,7 +103,16 @@ describe('/pengeluaran', () => {
     const text = await run('/pengeluaran makan siang 25rb', repo);
 
     expect(text).toBe(
-      ['✅ Pengeluaran tercatat', 'makan siang · 25.000 · tunai', 'ID 1', 'Saldo tunai: 175.000'].join('\n'),
+      [
+        '✅ <b>Pengeluaran tercatat</b>',
+        '',
+        'ID: <code>1</code>',
+        'makan siang',
+        'Nominal: <code>25.000</code>',
+        'Akun: tunai',
+        '',
+        'Saldo tunai: <code>175.000</code>',
+      ].join('\n'),
     );
   });
 
@@ -113,8 +121,8 @@ describe('/pengeluaran', () => {
     const text = await run('/pengeluaran makan siang 25.000,50', repo);
 
     expect(entries).toEqual([{ account: 'tunai', type: 'expense', amount: 2_500_050, description: 'makan siang' }]);
-    expect(text).toContain('makan siang · 25.000,50 · tunai');
-    expect(text).toContain('Saldo tunai: 174.999,50');
+    expect(text).toContain('Nominal: <code>25.000,50</code>');
+    expect(text).toContain('Saldo tunai: <code>174.999,50</code>');
   });
 
   it('penolakan memakai Format: dan Contoh: di baris terpisah (NFR-061)', async () => {
@@ -123,10 +131,19 @@ describe('/pengeluaran', () => {
 
     expect(text).toBe(
       [
-        'Format: /pengeluaran <deskripsi> <nominal> [@bank|@tunai]',
-        'Contoh: /pengeluaran makan siang 25rb',
+        '<b>Format:</b> <code>/pengeluaran &lt;deskripsi&gt; &lt;nominal&gt; [@bank|@tunai]</code>',
+        '',
+        '<b>Contoh:</b> <code>/pengeluaran makan siang 25rb</code>',
       ].join('\n'),
     );
+  });
+
+  it('meng-escape deskripsi yang memuat < > & agar terkirim utuh (HTML parse_mode)', async () => {
+    const { repo } = memoryRepo({ tunai: 20_000_000, bank: 0 });
+    const text = await run('/pengeluaran beli <kabel> & adaptor 25rb', repo);
+
+    expect(text).toContain('beli &lt;kabel&gt; &amp; adaptor');
+    expect(text).not.toContain('<kabel>');
   });
 
   it.each([
@@ -157,7 +174,7 @@ describe('/pemasukan', () => {
     expect(text).toContain('gaji');
     expect(text).toContain('5.000.000');
     expect(text).toContain('bank');
-    expect(text).toContain('Saldo bank: 5.100.000');
+    expect(text).toContain('Saldo bank: <code>5.100.000</code>');
   });
 
   it('default ke tunai (FR-032)', async () => {

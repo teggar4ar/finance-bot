@@ -36,25 +36,40 @@ const run = async (text: string, repo: Repo): Promise<string> =>
 describe('/saldo', () => {
   it('menampilkan tunai, bank, dan total; akun kosong dianggap 0 (FR-020)', async () => {
     const text = await run('/saldo', memoryRepo().repo);
-    expect(text).toBe(['Saldo tunai: 0', 'Saldo bank: 0', 'Total: 0'].join('\n'));
+    expect(text).toBe(
+      ['💰 <b>Saldo</b>', '', 'Tunai: <code>0</code>', 'Bank: <code>0</code>', 'Total: <b><code>0</code></b>'].join('\n'),
+    );
   });
 
   it('menjumlahkan total dari kedua akun', async () => {
     const text = await run('/saldo', memoryRepo({ tunai: 2_500_000, bank: 150_000_000 }).repo);
-    expect(text).toBe(['Saldo tunai: 25.000', 'Saldo bank: 1.500.000', 'Total: 1.525.000'].join('\n'));
+    expect(text).toBe(
+      [
+        '💰 <b>Saldo</b>',
+        '',
+        'Tunai: <code>25.000</code>',
+        'Bank: <code>1.500.000</code>',
+        'Total: <b><code>1.525.000</code></b>',
+      ].join('\n'),
+    );
   });
 
   it('memunculkan peringatan bila ada saldo negatif (FR-022)', async () => {
     const text = await run('/saldo', memoryRepo({ tunai: -2_500_000, bank: 1_000_000 }).repo);
-    expect(text).toContain('Peringatan');
-    expect(text).toContain('tunai');
-    expect(text).toContain('-25.000');
+    expect(text).toContain('<blockquote>⚠️ <i>Saldo tunai negatif.</i></blockquote>');
+    expect(text).toContain('<code>-25.000</code>');
   });
 
   it('menampilkan per-akun dan Total ber-sen (ADR-0005)', async () => {
     const text = await run('/saldo', memoryRepo({ tunai: 132_176_503, bank: 2_500_075 }).repo);
     expect(text).toBe(
-      ['Saldo tunai: 1.321.765,03', 'Saldo bank: 25.000,75', 'Total: 1.346.765,78'].join('\n'),
+      [
+        '💰 <b>Saldo</b>',
+        '',
+        'Tunai: <code>1.321.765,03</code>',
+        'Bank: <code>25.000,75</code>',
+        'Total: <b><code>1.346.765,78</code></b>',
+      ].join('\n'),
     );
   });
 });
@@ -65,8 +80,8 @@ describe('/saldo_awal', () => {
     const text = await run('/saldo_awal tunai 200rb', repo);
 
     expect(openings.tunai).toBe(20_000_000);
-    expect(text).toContain('ID 1');
-    expect(text).toContain('Saldo tunai: 200.000');
+    expect(text).toContain('ID: <code>1</code>');
+    expect(text).toContain('Saldo tunai: <code>200.000</code>');
   });
 
   it('membalas bentuk multi-baris: status, detail, ID, saldo (FR-038)', async () => {
@@ -74,7 +89,15 @@ describe('/saldo_awal', () => {
     const text = await run('/saldo_awal tunai 200rb', repo);
 
     expect(text).toBe(
-      ['✅ Saldo awal tercatat', 'tunai · 200.000', 'ID 1', 'Saldo tunai: 200.000'].join('\n'),
+      [
+        '✅ <b>Saldo awal tercatat</b>',
+        '',
+        'ID: <code>1</code>',
+        'Akun: tunai',
+        'Nominal: <code>200.000</code>',
+        '',
+        'Saldo tunai: <code>200.000</code>',
+      ].join('\n'),
     );
   });
 
@@ -83,7 +106,7 @@ describe('/saldo_awal', () => {
     const text = await run('/saldo_awal bank 5jt', repo);
 
     expect(openings.bank).toBe(500_000_000);
-    expect(text).toContain('Saldo bank: 5.000.000');
+    expect(text).toContain('Saldo bank: <code>5.000.000</code>');
   });
 
   it('menerima format Rp dengan spasi', async () => {
@@ -97,9 +120,9 @@ describe('/saldo_awal', () => {
     const text = await run('/saldo_awal bank 1.321.765,03', repo);
 
     expect(openings.bank).toBe(132_176_503);
-    expect(text).toContain('✅ Saldo awal tercatat');
-    expect(text).toContain('bank · 1.321.765,03');
-    expect(text).toContain('Saldo bank: 1.321.765,03');
+    expect(text).toContain('✅ <b>Saldo awal tercatat</b>');
+    expect(text).toContain('Nominal: <code>1.321.765,03</code>');
+    expect(text).toContain('Saldo bank: <code>1.321.765,03</code>');
   });
 
   it('menetapkan ulang mengganti nilai lama (FR-013)', async () => {
@@ -108,8 +131,8 @@ describe('/saldo_awal', () => {
     const text = await run('/saldo_awal tunai 300rb', repo);
 
     expect(openings.tunai).toBe(30_000_000);
-    expect(text).toContain('Saldo tunai: 300.000');
-    expect(await run('/saldo', repo)).toContain('Saldo tunai: 300.000');
+    expect(text).toContain('Saldo tunai: <code>300.000</code>');
+    expect(await run('/saldo', repo)).toContain('Tunai: <code>300.000</code>');
   });
 
   it('memunculkan peringatan bila saldo akun negatif setelah ditulis (FR-022)', async () => {
@@ -121,9 +144,8 @@ describe('/saldo_awal', () => {
     });
     const text = await run('/saldo_awal tunai 200rb', repo);
 
-    expect(text).toContain('ID 7');
-    expect(text).toContain('Peringatan');
-    expect(text).toContain('tunai');
+    expect(text).toContain('ID: <code>7</code>');
+    expect(text).toContain('<blockquote>⚠️ <i>Saldo tunai negatif.</i></blockquote>');
   });
 
   it('menolak Nominal tidak sah tanpa menulis apa pun (FR-035)', async () => {

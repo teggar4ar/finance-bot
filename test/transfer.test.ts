@@ -44,17 +44,17 @@ describe('/transfer', () => {
     const text = await run('/transfer bank tunai 500rb', repo);
 
     expect(entries).toEqual([{ from: 'bank', to: 'tunai', amount: 50_000_000, description: 'Transfer bank ke tunai' }]);
-    expect(text).toContain('Transfer bank ke tunai');
+    expect(text).toContain('Arah: bank ke tunai');
     expect(text).toContain('500.000');
-    expect(text).toContain('ID 1');
+    expect(text).toContain('ID: <code>1</code>');
   });
 
   it('membalas saldo kedua akun setelah Transfer (FR-038)', async () => {
     const { repo } = memoryRepo({ tunai: 20_000_000, bank: 500_000_000 });
     const text = await run('/transfer bank tunai 500rb', repo);
 
-    expect(text).toContain('Saldo bank: 4.500.000');
-    expect(text).toContain('Saldo tunai: 700.000');
+    expect(text).toContain('Saldo bank: <code>4.500.000</code>');
+    expect(text).toContain('Saldo tunai: <code>700.000</code>');
   });
 
   it('membalas bentuk multi-baris: status, detail, ID, kedua saldo (FR-038)', async () => {
@@ -63,11 +63,14 @@ describe('/transfer', () => {
 
     expect(text).toBe(
       [
-        '✅ Transfer tercatat',
-        '🔁 Transfer bank ke tunai · 500.000',
-        'ID 1',
-        'Saldo bank: 4.500.000',
-        'Saldo tunai: 700.000',
+        '✅ <b>Transfer tercatat</b>',
+        '',
+        'ID: <code>1</code>',
+        'Arah: bank ke tunai',
+        'Nominal: <code>500.000</code>',
+        '',
+        'Saldo bank: <code>4.500.000</code>',
+        'Saldo tunai: <code>700.000</code>',
       ].join('\n'),
     );
   });
@@ -94,22 +97,22 @@ describe('/transfer', () => {
     const text = await run('/transfer bank tunai 500.000,25', repo);
 
     expect(entries[0]?.amount).toBe(50_000_025);
-    expect(text).toContain('🔁 Transfer bank ke tunai · 500.000,25');
-    expect(text).toContain('Saldo bank: 499.999,75');
-    expect(text).toContain('Saldo tunai: 700.000,25');
+    expect(text).toContain('Arah: bank ke tunai');
+    expect(text).toContain('Nominal: <code>500.000,25</code>');
+    expect(text).toContain('Saldo bank: <code>499.999,75</code>');
+    expect(text).toContain('Saldo tunai: <code>700.000,25</code>');
   });
 
   it('memunculkan peringatan bila akun asal menjadi negatif (FR-022)', async () => {
     const { repo } = memoryRepo({ tunai: 0, bank: 1_000_000 });
     const text = await run('/transfer bank tunai 25rb', repo);
 
-    expect(text).toContain('Peringatan');
-    expect(text).toContain('bank');
+    expect(text).toContain('<blockquote>⚠️ <i>Saldo bank negatif.</i></blockquote>');
   });
 
   it('tidak memunculkan peringatan bila kedua akun tetap positif (FR-022)', async () => {
     const { repo } = memoryRepo({ tunai: 0, bank: 100_000_000 });
-    expect(await run('/transfer bank tunai 500rb', repo)).not.toContain('Peringatan');
+    expect(await run('/transfer bank tunai 500rb', repo)).not.toContain('<blockquote>');
   });
 
   it('menolak Transfer ke akun yang sama dengan pesan jelas (FR-036)', async () => {

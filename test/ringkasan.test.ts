@@ -49,24 +49,24 @@ describe('/hari_ini', () => {
     const text = await run('/hari_ini', repo);
 
     expect(text).toContain('hari ini (04/11/2026)');
-    expect(text).toContain('Pemasukan: 5.000.000');
-    expect(text).toContain('Pengeluaran: 25.000');
-    expect(text).toContain('Net: 4.975.000');
-    expect(text).toContain('Transaksi: 3');
+    expect(text).toContain('Pemasukan: <code>5.000.000</code>');
+    expect(text).toContain('Pengeluaran: <code>25.000</code>');
+    expect(text).toContain('Net: <b><code>4.975.000</code></b>');
+    expect(text).toContain('Transaksi: <code>3</code>');
   });
 
   it('Net negatif ditulis dengan tanda minus', async () => {
     const { repo } = fakeRepo({ getSummary: async () => ({ income: 0, expense: 2_500_000, txCount: 1 }) });
-    expect(await run('/hari_ini', repo)).toContain('Net: -25.000');
+    expect(await run('/hari_ini', repo)).toContain('Net: <b><code>-25.000</code></b>');
   });
 
   it('menampilkan Ringkasan ber-sen (ADR-0005)', async () => {
     const { repo } = fakeRepo({ getSummary: async () => ({ income: 500_000_050, expense: 2_500_075, txCount: 2 }) });
     const text = await run('/hari_ini', repo);
 
-    expect(text).toContain('Pemasukan: 5.000.000,50');
-    expect(text).toContain('Pengeluaran: 25.000,75');
-    expect(text).toContain('Net: 4.974.999,75');
+    expect(text).toContain('Pemasukan: <code>5.000.000,50</code>');
+    expect(text).toContain('Pengeluaran: <code>25.000,75</code>');
+    expect(text).toContain('Net: <b><code>4.974.999,75</code></b>');
   });
 });
 
@@ -154,7 +154,7 @@ describe('hari melewati budget (FR-076)', () => {
 
     expect(budgetDates).toEqual(['2026-10-31']);
     expect(ranges).toEqual([{ start: '2026-09-30T17:00:00.000Z', end: '2026-10-31T17:00:00.000Z' }]);
-    expect(text).toContain('Hari melewati budget: 2');
+    expect(text).toContain('Hari melewati budget: <code>2</code>');
   });
 
   it('/bulan_ini juga menyebutkannya', async () => {
@@ -163,7 +163,7 @@ describe('hari melewati budget (FR-076)', () => {
       getBudgetsUpTo: async () => [{ effectiveFrom: '2026-11-01', amount: 5_000_000 }],
     });
 
-    expect(await run('/bulan_ini', repo)).toContain('Hari melewati budget: 1');
+    expect(await run('/bulan_ini', repo)).toContain('Hari melewati budget: <code>1</code>');
   });
 
   it('tanpa Budget pada bulan itu tidak ada barisnya', async () => {

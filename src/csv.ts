@@ -2,7 +2,7 @@ import type { Account, CarryIn, LedgerEntry } from './repo';
 import { splitSen } from './amount';
 import { pad, wibDate, wibDateTime } from './wib';
 
-/** Hasil `/export`: isi file plus nama dan caption untuk adapter Telegram (FR-101). */
+/** Hasil `/export`: isi file plus nama dan caption untuk adapter Telegram (FR-101). Caption ber-HTML; isi CSV tetap polos. */
 export interface CsvFile {
   filename: string;
   content: string;
@@ -82,7 +82,7 @@ export function buildCsv(
     return {
       filename: 'keuangan-semua.csv',
       content: BOM + lines.join('\r\n'),
-      caption: `Export semua transaksi\n${count} baris`,
+      caption: `📄 <b>Export semua transaksi</b>\n\n<code>${count}</code> baris`,
     };
   }
 
@@ -91,6 +91,6 @@ export function buildCsv(
   return {
     filename: `keuangan-${year}-${monthText}.csv`,
     content: BOM + lines.join('\r\n'),
-    caption: `Export ${monthText}/${year}\n${count} baris`,
+    caption: `📄 <b>Export ${monthText}/${year}</b>\n\n<code>${count}</code> baris`,
   };
 }
