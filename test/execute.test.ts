@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { parseCommand } from '../src/command';
 import type { Deps } from '../src/execute';
-import { HELP, HINT, execute } from '../src/execute';
+import { execute } from '../src/execute';
+import { HELP, HINT } from '../src/text';
 import { fakeRepo } from './fake-repo';
 
 const deps: Deps = {

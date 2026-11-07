@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { parseCommand } from '../src/command';
 import type { Deps } from '../src/execute';
-import { HINT, execute } from '../src/execute';
+import { execute } from '../src/execute';
 import type { Account, Balances, Repo } from '../src/repo';
+import { HINT } from '../src/text';
 import { fakeRepo } from './fake-repo';
 
 interface Recorded {
