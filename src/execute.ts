@@ -9,6 +9,9 @@ import { isAccount } from './repo';
 import {
   HELP,
   HINT,
+  TRANSFER_EMOJI,
+  TYPE_EMOJI,
+  TYPE_LABELS,
   USAGE_BUDGET,
   USAGE_EDIT,
   USAGE_EXPORT,
@@ -37,11 +40,6 @@ export type Reply = string | CsvFile;
 const SOFT_WARNING_PERCENT = 80;
 
 const HISTORY_LIMIT = 10;
-
-/** Nama jenis yang tampil ke pengguna; satu tempat supaya balasan tidak berbeda kata. */
-const TYPE_LABELS: Record<ExpenseOrIncome, string> = { expense: 'Pengeluaran', income: 'Pemasukan' };
-const TYPE_EMOJI: Record<ExpenseOrIncome, string> = { expense: '💸', income: '📥' };
-const TRANSFER_EMOJI = '🔁';
 
 /** Balasan multi-baris dalam satu blok; baris `null` (mis. peringatan yang tidak berlaku) dibuang. */
 function replyLines(...lines: (string | null)[]): string {
@@ -252,8 +250,8 @@ async function summary(target: Period | null, deps: Deps): Promise<string> {
   return blocks(
     `📊 <b>Ringkasan ${target.label}</b>`,
     replyLines(
-      `Pemasukan: ${code(formatAmount(income))}`,
-      `Pengeluaran: ${code(formatAmount(expense))}`,
+      `${TYPE_LABELS.income}: ${code(formatAmount(income))}`,
+      `${TYPE_LABELS.expense}: ${code(formatAmount(expense))}`,
       `Net: ${bold(code(formatAmount(income - expense)))}`,
     ),
     replyLines(...counts),

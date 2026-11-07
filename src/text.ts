@@ -1,4 +1,5 @@
 import { bold, code } from './reply';
+import type { ExpenseOrIncome } from './repo';
 
 /** FR-100: per kategori; setiap command v1 tetap muncul dengan contoh singkat. */
 export const HELP = [
@@ -59,3 +60,8 @@ export const USAGE_HAPUS = usage('/hapus <id>', '/hapus 12');
 export const USAGE_RINGKASAN = usage('/ringkasan <tanggal|bulan>', '/ringkasan 2026-10-15 atau /ringkasan 2026-10');
 export const USAGE_BUDGET = usage('/budget <nominal>', '/budget 150rb');
 export const USAGE_EXPORT = usage('/export [YYYY-MM]', '/export 2026-10');
+
+/** Nama jenis yang tampil ke pengguna; satu tempat supaya balasan tidak berbeda kata. */
+export const TYPE_LABELS: Record<ExpenseOrIncome, string> = { expense: 'Pengeluaran', income: 'Pemasukan' };
+export const TYPE_EMOJI: Record<ExpenseOrIncome, string> = { expense: '💸', income: '📥' };
+export const TRANSFER_EMOJI = '🔁';
