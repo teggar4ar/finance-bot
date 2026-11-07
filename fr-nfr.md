@@ -29,7 +29,7 @@ A simple personal finance tracker used through a Telegram chatbot. The user reco
 - Scheduled/automatic reports.
 - Google Sheets integration (replaced by PostgreSQL + CSV export).
 - Negative opening balances.
-- Inline keyboards or any UI other than plain text replies.
+- Inline keyboards, buttons, or other interactive UI (reply text formatting is allowed; see FR-105).
 - Continuous integration (tests run locally).
 
 ### 1.4 Glossary
@@ -160,7 +160,13 @@ Priority: **M** = Must have, **S** = Should have.
 | FR-103 | A message that is not a recognized command, including plain text, shall get a short hint reply and shall write nothing. | M |
 | FR-104 | If a message contains more than one command, only the first command shall be processed. | S |
 
-### 2.11 Command Summary
+### 2.11 Reply Format
+
+| ID | Requirement | Priority |
+|---|---|---|
+| FR-105 | Bot replies may use Telegram's HTML text formatting (`parse_mode: HTML`) — bold, monospace, and quote blocks — as presentation only; the same information shall remain readable as plain text, and user-supplied text shall be escaped (see ADR-0006). | S |
+
+### 2.12 Command Summary
 
 | Command | Purpose |
 |---|---|
