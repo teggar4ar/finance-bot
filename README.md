@@ -23,6 +23,7 @@ Catat pengeluaran, pemasukan, dan transfer dengan satu baris singkat (mis. `/k m
 - **Ringkasan** hari ini, minggu ini, bulan ini, atau tanggal/bulan tertentu (batas hari dalam WIB).
 - **Budget harian** dengan peringatan lembut (≥80%) dan keras (>100%), serta hitungan hari melewati budget pada ringkasan bulanan.
 - **Ekspor CSV** bergaya ledger (semua data atau per bulan, dengan saldo berjalan).
+- **Balasan berformat** — pesan dikirim dengan `parse_mode: HTML`: judul tebal, nominal `monospace`, dan peringatan sebagai blok kutipan; teks dari pengguna selalu di-escape agar parsing Telegram tidak pernah galat.
 - **Aman** — akses dibatasi middleware pertama, query terparameterisasi, rahasia hanya via environment variable.
 
 ## Tech stack
@@ -110,20 +111,23 @@ src/
 ├─ env.ts          # muat .env lewat process.loadEnvFile()
 ├─ log.ts          # log satu baris; redaksi token
 ├─ command.ts      # parseCommand() — nama + argumen, alias satu huruf
-├─ amount.ts       # parseAmount() / formatAmount() (format rupiah Indonesia)
+├─ amount.ts       # parseAmount() / formatAmount() — Nominal integer sen
 ├─ wib.ts          # satu-satunya aritmetika & format WIB
+├─ period.ts       # periode hari/minggu/bulan (blok murni) untuk ringkasan
+├─ reply.ts        # primitif format HTML + escaping (esc, code, bold, warning)
+├─ text.ts         # kosakata balasan statis: HELP, HINT, USAGE_*, label & emoji jenis
 ├─ execute.ts      # seam execute(command, deps) -> Reply; semua handler
-├─ telegram.ts     # createBot() — middleware akses, kirim teks/dokumen
+├─ telegram.ts     # createBot() — middleware akses, kirim teks/dokumen (parse_mode HTML)
 ├─ csv.ts          # builder CSV murni (BOM, CRLF, RFC 4180)
 ├─ repo.ts         # interface data-access (Repo) + tipe
 └─ db/
    ├─ repo.ts      # createRepo(pool) — satu-satunya tempat SQL
    ├─ pool.ts      # connection pool pg
    └─ init.ts      # penerap schema.sql
-test/              # 267 tes Vitest (15 file) + fake-repo.ts
+test/              # 275 tes Vitest (17 file) + fake-repo.ts
 ```
 
-Arsitektur ringkas: semua handler adalah fungsi murni di balik seam `execute(command, deps) → Reply`, sehingga mudah diuji tanpa database. **Seluruh SQL tinggal di `src/db/repo.ts`**; sisanya memanggil fungsi seperti `getBalances()` atau `addExpenseOrIncome()`. Alur waktu memakai UTC di DB dan batas hari/minggu/bulan WIB dihitung di aplikasi (SQL tetap portabel).
+Arsitektur ringkas: semua handler adalah fungsi murni di balik seam `execute(command, deps) → Reply`, sehingga mudah diuji tanpa database. Kosakata balasan statis (`HELP`, `HINT`, `USAGE_*`, label/emoji jenis transaksi) dipusatkan di `src/text.ts`, sedangkan primitif format HTML di `src/reply.ts`. **Seluruh SQL tinggal di `src/db/repo.ts`**; sisanya memanggil fungsi seperti `getBalances()` atau `addExpenseOrIncome()`. Alur waktu memakai UTC di DB dan batas hari/minggu/bulan WIB dihitung di aplikasi (SQL tetap portabel).
 
 ## Tes
 
@@ -131,7 +135,7 @@ Arsitektur ringkas: semua handler adalah fungsi murni di balik seam `execute(com
 npm test
 ```
 
-**267 tes di 15 file** (Vitest). Unit test mencakup parser nominal, parser argumen, aturan budget, dan logika saldo. Tes integrasi menembak PostgreSQL sungguhan pada database `_test` dan **dilewati bila `TEST_DATABASE_URL` kosong**.
+**275 tes di 17 file** (Vitest). Unit test mencakup parser nominal, parser argumen, aturan budget, logika saldo, escaping HTML, dan adapter `parse_mode`. Tes integrasi menembak PostgreSQL sungguhan pada database `_test` dan **dilewati bila `TEST_DATABASE_URL` kosong**.
 
 > [!TIP]
 > `tsconfig.json` hanya meng-`include` `src`, jadi tes tidak ikut di-typecheck oleh `tsc` biasa. Tes integrasi menolak berjalan bila nama database tidak berakhiran `_test`.
@@ -149,4 +153,4 @@ Produksi berjalan sebagai **worker Heroku** (`Procfile`: `worker: node dist/inde
 - [`CONTEXT.md`](./CONTEXT.md) — glosarium istilah domain.
 - [`fr-nfr.md`](./fr-nfr.md) — functional & non-functional requirements, keputusan, asumsi.
 - [`db-schema.md`](./db-schema.md) — skema, view `ledger_entries`, katalog query, kebijakan perubahan schema.
-- [`docs/adr`](./docs/adr) — Architecture Decision Records (saldo derived, transfer satu baris, opening = row zero, alias satu huruf).
+- [`docs/adr`](./docs/adr) — Architecture Decision Records (saldo derived, transfer satu baris, opening = row zero, alias satu huruf, uang integer sen, balasan ber-HTML).
