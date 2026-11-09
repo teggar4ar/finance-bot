@@ -19,7 +19,7 @@ async function main(): Promise<void> {
   }
 
   const pool = createPool(config.databaseUrl);
-  const deps: Deps = { now: () => new Date(), repo: createRepo(pool) };
+  const deps: Deps = { now: () => new Date(), repo: createRepo(pool, config.allowedUserId) };
   const bot = createBot(config.botToken, config.allowedUserId, deps);
 
   let stopping = false;

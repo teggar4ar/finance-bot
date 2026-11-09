@@ -69,7 +69,7 @@ function toTransaction(row: TransactionRow): Transaction {
 }
 
 const DISCARD_REDO_HISTORY =
-  'UPDATE transactions SET deleted_at = now() WHERE undone_at IS NOT NULL AND deleted_at IS NULL';
+  'UPDATE transactions SET deleted_at = now() WHERE undone_at IS NOT NULL AND deleted_at IS NULL AND owner = $1';
 
 /** Semua tulis multi-baris all-or-nothing (NFR-013). */
 async function inTransaction<T>(pool: Pool, work: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -87,18 +87,19 @@ async function inTransaction<T>(pool: Pool, work: (client: PoolClient) => Promis
   }
 }
 
-export function createRepo(pool: Pool): Repo {
+/** Buku satu Pengguna (ADR-0007): `owner` masuk lewat closure, tanda tangan `Repo` tak berubah. */
+export function createRepo(pool: Pool, owner: number): Repo {
   return {
     async setOpeningBalance(account, amount) {
       return inTransaction(pool, async (client) => {
-        await client.query(DISCARD_REDO_HISTORY);
+        await client.query(DISCARD_REDO_HISTORY, [owner]);
         await client.query(
-          "UPDATE transactions SET deleted_at = now() WHERE type = 'opening' AND account = $1 AND deleted_at IS NULL",
-          [account],
+          "UPDATE transactions SET deleted_at = now() WHERE type = 'opening' AND account = $1 AND owner = $2 AND deleted_at IS NULL",
+          [account, owner],
         );
         const { rows } = await client.query<{ id: string }>(
-          "INSERT INTO transactions (type, account, amount, description) VALUES ('opening', $1, $2, 'Saldo awal') RETURNING id",
-          [account, amount],
+          "INSERT INTO transactions (type, account, amount, description, owner) VALUES ('opening', $1, $2, 'Saldo awal', $3) RETURNING id",
+          [account, amount, owner],
         );
         return toSafeNumber(rows[0]!.id);
       });
@@ -106,10 +107,10 @@ export function createRepo(pool: Pool): Repo {
 
     async addExpenseOrIncome(account, type, amount, description) {
       return inTransaction(pool, async (client) => {
-        await client.query(DISCARD_REDO_HISTORY);
+        await client.query(DISCARD_REDO_HISTORY, [owner]);
         const { rows } = await client.query<{ id: string }>(
-          'INSERT INTO transactions (type, account, amount, description) VALUES ($1, $2, $3, $4) RETURNING id',
-          [type, account, amount, description],
+          'INSERT INTO transactions (type, account, amount, description, owner) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+          [type, account, amount, description, owner],
         );
         return toSafeNumber(rows[0]!.id);
       });
@@ -117,10 +118,10 @@ export function createRepo(pool: Pool): Repo {
 
     async addTransfer(from, to, amount, description) {
       return inTransaction(pool, async (client) => {
-        await client.query(DISCARD_REDO_HISTORY);
+        await client.query(DISCARD_REDO_HISTORY, [owner]);
         const { rows } = await client.query<{ id: string }>(
-          "INSERT INTO transactions (type, account, to_account, amount, description) VALUES ('transfer', $1, $2, $3, $4) RETURNING id",
-          [from, to, amount, description],
+          "INSERT INTO transactions (type, account, to_account, amount, description, owner) VALUES ('transfer', $1, $2, $3, $4, $5) RETURNING id",
+          [from, to, amount, description, owner],
         );
         return toSafeNumber(rows[0]!.id);
       });
@@ -128,7 +129,8 @@ export function createRepo(pool: Pool): Repo {
 
     async getBalances() {
       const { rows } = await pool.query<{ account: Account; balance: string }>(
-        'SELECT account, CAST(SUM(money_in - money_out) AS BIGINT) AS balance FROM ledger_entries GROUP BY account',
+        'SELECT account, CAST(SUM(money_in - money_out) AS BIGINT) AS balance FROM ledger_entries WHERE owner = $1 GROUP BY account',
+        [owner],
       );
       const balances: Balances = { tunai: 0, bank: 0 };
       for (const row of rows) balances[row.account] = toSafeNumber(row.balance);
@@ -140,13 +142,15 @@ export function createRepo(pool: Pool): Repo {
       const { rows } = await pool.query<TransactionRow>(
         `UPDATE transactions
          SET undone_at = now()
-         WHERE id = (
-           SELECT id FROM transactions
-           WHERE undone_at IS NULL AND deleted_at IS NULL
-           ORDER BY id DESC
-           LIMIT 1
-         )
+         WHERE owner = $1
+           AND id = (
+             SELECT id FROM transactions
+             WHERE owner = $1 AND undone_at IS NULL AND deleted_at IS NULL
+             ORDER BY id DESC
+             LIMIT 1
+           )
          RETURNING ${TX_COLUMNS}`,
+        [owner],
       );
       return rows[0] ? toTransaction(rows[0]) : null;
     },
@@ -155,13 +159,15 @@ export function createRepo(pool: Pool): Repo {
       const { rows } = await pool.query<TransactionRow>(
         `UPDATE transactions
          SET undone_at = NULL
-         WHERE id = (
-           SELECT id FROM transactions
-           WHERE undone_at IS NOT NULL AND deleted_at IS NULL
-           ORDER BY id ASC
-           LIMIT 1
-         )
+         WHERE owner = $1
+           AND id = (
+             SELECT id FROM transactions
+             WHERE owner = $1 AND undone_at IS NOT NULL AND deleted_at IS NULL
+             ORDER BY id ASC
+             LIMIT 1
+           )
          RETURNING ${TX_COLUMNS}`,
+        [owner],
       );
       return rows[0] ? toTransaction(rows[0]) : null;
     },
@@ -170,10 +176,10 @@ export function createRepo(pool: Pool): Repo {
       const { rows } = await pool.query<HistoryRow>(
         `SELECT ${TX_COLUMNS}, occurred_at
          FROM transactions
-         WHERE undone_at IS NULL AND deleted_at IS NULL
+         WHERE owner = $2 AND undone_at IS NULL AND deleted_at IS NULL
          ORDER BY occurred_at DESC, id DESC
          LIMIT $1`,
-        [limit],
+        [limit, owner],
       );
       return rows.map((row): HistoryTransaction => ({ ...toTransaction(row), occurredAt: row.occurred_at }));
     },
@@ -183,9 +189,9 @@ export function createRepo(pool: Pool): Repo {
       const { rows } = await pool.query<TransactionRow>(
         `UPDATE transactions
          SET description = $2, amount = $3, account = COALESCE($4, account)
-         WHERE id = $1 AND type IN ('expense', 'income') AND undone_at IS NULL AND deleted_at IS NULL
+         WHERE id = $1 AND owner = $5 AND type IN ('expense', 'income') AND undone_at IS NULL AND deleted_at IS NULL
          RETURNING ${TX_COLUMNS}`,
-        [id, description, amount, account],
+        [id, description, amount, account, owner],
       );
       return rows[0] ? toTransaction(rows[0]) : null;
     },
@@ -194,9 +200,9 @@ export function createRepo(pool: Pool): Repo {
       const { rows } = await pool.query<TransactionRow>(
         `UPDATE transactions
          SET deleted_at = now()
-         WHERE id = $1 AND undone_at IS NULL AND deleted_at IS NULL
+         WHERE id = $1 AND owner = $2 AND undone_at IS NULL AND deleted_at IS NULL
          RETURNING ${TX_COLUMNS}`,
-        [id],
+        [id, owner],
       );
       return rows[0] ? toTransaction(rows[0]) : null;
     },
@@ -208,10 +214,10 @@ export function createRepo(pool: Pool): Repo {
            CAST(COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS BIGINT) AS expense,
            CAST(COUNT(*) AS INTEGER) AS tx_count
          FROM transactions
-         WHERE type IN ('expense', 'income')
+         WHERE owner = $3 AND type IN ('expense', 'income')
            AND undone_at IS NULL AND deleted_at IS NULL
            AND occurred_at >= $1 AND occurred_at < $2`,
-        [utcStart, utcEnd],
+        [utcStart, utcEnd, owner],
       );
       const row = rows[0]!;
       return { income: toSafeNumber(row.income), expense: toSafeNumber(row.expense), txCount: row.tx_count };
@@ -220,10 +226,10 @@ export function createRepo(pool: Pool): Repo {
     // Satu pernyataan = satu transaksi; tidak perlu `inTransaction` (NFR-013).
     async setBudget(amount, wibDate) {
       await pool.query(
-        `INSERT INTO budgets (amount, effective_from)
-         VALUES ($1, $2)
+        `INSERT INTO budgets (owner, amount, effective_from)
+         VALUES ($1, $2, $3)
          ON CONFLICT (owner, effective_from) DO UPDATE SET amount = EXCLUDED.amount`,
-        [amount, wibDate],
+        [owner, amount, wibDate],
       );
     },
 
@@ -231,10 +237,10 @@ export function createRepo(pool: Pool): Repo {
       const { rows } = await pool.query<{ amount: string }>(
         `SELECT amount
          FROM budgets
-         WHERE effective_from <= $1
+         WHERE owner = $2 AND effective_from <= $1
          ORDER BY effective_from DESC
          LIMIT 1`,
-        [wibDate],
+        [wibDate, owner],
       );
       return rows[0] ? toSafeNumber(rows[0].amount) : null;
     },
@@ -244,9 +250,9 @@ export function createRepo(pool: Pool): Repo {
         // `to_char` menjaga bentuk `YYYY-MM-DD` apa pun `DateStyle` sesinya (FR-076).
         `SELECT to_char(effective_from, 'YYYY-MM-DD') AS effective_from, amount
          FROM budgets
-         WHERE effective_from <= $1
+         WHERE owner = $2 AND effective_from <= $1
          ORDER BY effective_from`,
-        [wibDate],
+        [wibDate, owner],
       );
       return rows.map((row) => ({ effectiveFrom: row.effective_from, amount: toSafeNumber(row.amount) }));
     },
@@ -255,10 +261,10 @@ export function createRepo(pool: Pool): Repo {
       const { rows } = await pool.query<{ used: string }>(
         `SELECT CAST(COALESCE(SUM(amount), 0) AS BIGINT) AS used
          FROM transactions
-         WHERE type = 'expense'
+         WHERE owner = $3 AND type = 'expense'
            AND undone_at IS NULL AND deleted_at IS NULL
            AND occurred_at >= $1 AND occurred_at < $2`,
-        [utcStart, utcEnd],
+        [utcStart, utcEnd, owner],
       );
       return toSafeNumber(rows[0]!.used);
     },
@@ -267,11 +273,11 @@ export function createRepo(pool: Pool): Repo {
       const { rows } = await pool.query<{ occurred_at: Date; amount: string }>(
         `SELECT occurred_at, amount
          FROM transactions
-         WHERE type = 'expense'
+         WHERE owner = $3 AND type = 'expense'
            AND undone_at IS NULL AND deleted_at IS NULL
            AND occurred_at >= $1 AND occurred_at < $2
          ORDER BY occurred_at`,
-        [utcStart, utcEnd],
+        [utcStart, utcEnd, owner],
       );
       return rows.map((row) => ({ occurredAt: row.occurred_at, amount: toSafeNumber(row.amount) }));
     },
@@ -290,6 +296,7 @@ export function createRepo(pool: Pool): Repo {
                RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
              ) AS BIGINT) AS total_balance
            FROM ledger_entries
+           WHERE owner = $3
          )
          SELECT id, occurred_at, account, type, description, money_in, money_out, account_balance, total_balance
          FROM running
@@ -297,7 +304,7 @@ export function createRepo(pool: Pool): Repo {
          WHERE ($1::timestamptz IS NULL OR (type <> 'opening' AND occurred_at >= $1::timestamptz))
            AND ($2::timestamptz IS NULL OR occurred_at < $2::timestamptz)
          ORDER BY (type = 'opening') DESC, occurred_at, id, leg`,
-        [utcStart, utcEnd],
+        [utcStart, utcEnd, owner],
       );
       return rows.map(toLedgerEntry);
     },
@@ -307,9 +314,9 @@ export function createRepo(pool: Pool): Repo {
         // Saldo awal adalah baris nol: ikut terhitung walau ditetapkan setelah periode (FR-095, FR-097).
         `SELECT account, CAST(SUM(money_in - money_out) AS BIGINT) AS balance
          FROM ledger_entries
-         WHERE type = 'opening' OR occurred_at < $1
+         WHERE owner = $2 AND (type = 'opening' OR occurred_at < $1)
          GROUP BY account`,
-        [utcStart],
+        [utcStart, owner],
       );
       return rows.map((row) => ({ account: row.account, balance: toSafeNumber(row.balance) }));
     },

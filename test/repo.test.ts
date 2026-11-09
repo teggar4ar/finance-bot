@@ -14,6 +14,8 @@ const url = process.env.TEST_DATABASE_URL?.trim();
 const suite = url ? describe : describe.skip;
 /** Pemilik tetap untuk seluruh suite, meniru `db:init` (ADR-0007). */
 const OWNER = 1;
+/** Pemilik lain untuk menguji isolasi antar-buku (ADR-0007). */
+const OTHER_OWNER = 2;
 
 suite('repo Postgres (integrasi, NFR-081/082)', () => {
   let pool: Pool;
@@ -41,7 +43,7 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
     }
     schemaSql = await readFile(path.join(process.cwd(), 'schema.sql'), 'utf8');
     await applySchema();
-    repo = createRepo(pool);
+    repo = createRepo(pool, OWNER);
   });
 
   /** Menaruh Transaksi pada jam tertentu tanpa bergantung jam dinding. */
@@ -633,5 +635,39 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
     await repo.deleteTransaction(deleted);
 
     expect((await repo.getLedger(null, null)).map((row) => row.id)).toEqual([kept]);
+  });
+
+  it('buku tiap Pengguna terisolasi: baca, tulis, edit/hapus, undo/redo, budget (ADR-0007)', async () => {
+    const other = createRepo(pool, OTHER_OWNER);
+    const mine = await repo.setOpeningBalance('tunai', 200_000);
+    const theirs = await other.addExpenseOrIncome('tunai', 'expense', 25_000, 'milik lain');
+    await other.setBudget(100_000, '2026-11-04');
+
+    expect(await repo.getBalances()).toEqual({ tunai: 200_000, bank: 0 });
+    expect(await other.getBalances()).toEqual({ tunai: -25_000, bank: 0 });
+    expect((await repo.getHistory(10)).map((transaction) => transaction.id)).toEqual([mine]);
+    expect((await other.getHistory(10)).map((transaction) => transaction.id)).toEqual([theirs]);
+    expect(await repo.getBudgetFor('2026-11-04')).toBeNull();
+    expect(await other.getBudgetFor('2026-11-04')).toBe(100_000);
+    expect((await repo.getLedger(null, null)).map((entry) => entry.id)).toEqual([mine]);
+    expect(await repo.getCarryIn(new Date('2026-11-05T00:00:00Z'))).toEqual([{ account: 'tunai', balance: 200_000 }]);
+
+    // edit/hapus baris Pengguna lain tidak menyentuh apa pun.
+    expect(await repo.editTransaction(theirs, 'bajak', 1, null)).toBeNull();
+    expect(await repo.deleteTransaction(theirs)).toBeNull();
+    expect(await other.getBalances()).toEqual({ tunai: -25_000, bank: 0 });
+
+    // undo/redo hanya membatalkan/memulihkan baris sendiri. `mine` masih aktif
+    // dan `theirs` (lebih baru) juga: urutan ini gagal bila filter `owner` hilang.
+    expect(await repo.undoLast()).toEqual({
+      id: mine,
+      type: 'opening',
+      account: 'tunai',
+      toAccount: null,
+      amount: 200_000,
+      description: 'Saldo awal',
+    });
+    expect((await other.undoLast())?.id).toBe(theirs);
+    expect((await repo.redoLast())?.id).toBe(mine);
   });
 });
