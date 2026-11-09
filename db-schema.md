@@ -50,6 +50,7 @@ Deferred: a `category` column and a `category_keywords` table will be added when
 | `description` | `text` | no | `''` | Free text. The application requires it for expense/income and fills it for opening and transfer rows |
 | `undone_at` | `timestamptz` | yes | | Set by `/undo`, cleared by `/redo` |
 | `deleted_at` | `timestamptz` | yes | | Set by `/hapus`, or when redo history is discarded by a new transaction |
+| `owner` | `bigint` | no | first `ALLOWED_USER_IDS` | Telegram user id of the Pengguna who owns the row (ADR-0007). Added nullable by `schema.sql`; `db:init` backfills legacy rows, then sets `NOT NULL` and the owner `DEFAULT` (section 9) |
 
 **Active transaction:** `undone_at IS NULL AND deleted_at IS NULL`.
 
@@ -68,6 +69,7 @@ Deferred: a `category` column and a `category_keywords` table will be added when
 - `type` must be one of the four values.
 - `amount > 0`. Because this covers every type, an opening balance cannot be negative (v1).
 - A `transfer` must have `to_account` set and different from `account`. Every other type must have `to_account` NULL.
+- `owner` is the Telegram user id of the book (ADR-0007); every row belongs to exactly one Pengguna. It is not a `CHECK`; the column is added nullable, then `db:init` backfills legacy rows and enforces `NOT NULL` (section 9). The view carries `owner` through both legs.
 
 ### 3.4 Indexes
 
@@ -88,21 +90,23 @@ Data volume is tiny (a few thousand rows per year), so indexes are for tidiness 
 |---|---|---|---|---|
 | `id` | `bigint` identity | no | generated | Primary key |
 | `amount` | `bigint` | no | | Daily budget in Rupiah, strictly greater than 0 |
-| `effective_from` | `date` | no | | First WIB day this budget applies to. **Unique** |
+| `effective_from` | `date` | no | | First WIB day this budget applies to. **Unique per `owner`** |
 | `created_at` | `timestamptz` | no | `now()` | Audit only |
+| `owner` | `bigint` | no | first `ALLOWED_USER_IDS` | Telegram user id of the Pengguna this budget belongs to (ADR-0007). Added nullable by `schema.sql`; `db:init` backfills, then sets `NOT NULL` and the owner `DEFAULT` |
 
 ### 4.2 Rules
 
-- The budget for a given day is the row with the **latest `effective_from` on or before that day**. If no such row exists, no budget applies and no warnings are shown (FR-088).
-- Setting the budget with `/budget <amount>` writes a row with `effective_from` = today (WIB). Running it again the same day **replaces** that day's value (upsert on the unique `effective_from`).
+- The budget for a given day is the row with the **latest `effective_from` on or before that day**, for that row's `owner`. If no such row exists, no budget applies and no warnings are shown (FR-088).
+- Setting the budget with `/budget <amount>` writes a row with `effective_from` = today (WIB). Running it again the same day **replaces** that day's value (upsert on the unique `(owner, effective_from)`).
 - Changing the budget never affects earlier days, because earlier days resolve to earlier rows (FR-083).
+- Uniqueness is per `(owner, effective_from)`, not global: two Pengguna may set a budget for the same day.
 
 ---
 
 ## 5. Complete `schema.sql`
 
 ```sql
--- schema.sql: idempotent, safe to run on every deploy/start.
+-- schema.sql: idempoten, aman dijalankan setiap deploy/start.
 
 CREATE TABLE IF NOT EXISTS transactions (
   id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -142,9 +146,21 @@ CREATE TABLE IF NOT EXISTS budgets (
   CONSTRAINT uq_budget_effective_from UNIQUE (effective_from)
 );
 
+-- === Kepemilikan per Pengguna (ADR-0007) ===
+-- `owner` = Telegram user id pemilik baris. Kolom ditambah idempoten di sini;
+-- baris lama di-backfill, `DEFAULT` dipasang, dan `NOT NULL` ditegakkan oleh
+-- `npm run db:init` karena butuh id dari `ALLOWED_USER_IDS` (tak tersedia di sini).
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS owner BIGINT;
+ALTER TABLE budgets      ADD COLUMN IF NOT EXISTS owner BIGINT;
+
+-- Unik Budget pindah dari global-per-tanggal ke per-Pengguna.
+ALTER TABLE budgets DROP CONSTRAINT IF EXISTS uq_budget_effective_from;
+ALTER TABLE budgets DROP CONSTRAINT IF EXISTS uq_budget_owner_effective_from;
+ALTER TABLE budgets ADD CONSTRAINT uq_budget_owner_effective_from UNIQUE (owner, effective_from);
+
 -- Active transactions expanded into one row per affected account.
 -- A transfer yields two rows: leg 1 = money out of the source,
--- leg 2 = money into the destination.
+-- leg 2 = money into the destination. `owner` mengalir dari transaksi induk.
 CREATE OR REPLACE VIEW ledger_entries AS
 SELECT
   id,
@@ -154,7 +170,8 @@ SELECT
   description,
   CASE WHEN type IN ('opening', 'income') THEN amount ELSE CAST(0 AS BIGINT) END AS money_in,
   CASE WHEN type IN ('expense', 'transfer') THEN amount ELSE CAST(0 AS BIGINT) END AS money_out,
-  1 AS leg
+  1 AS leg,
+  owner
 FROM transactions
 WHERE undone_at IS NULL AND deleted_at IS NULL
 UNION ALL
@@ -166,16 +183,43 @@ SELECT
   description,
   amount AS money_in,
   CAST(0 AS BIGINT) AS money_out,
-  2 AS leg
+  2 AS leg,
+  owner
 FROM transactions
 WHERE type = 'transfer' AND undone_at IS NULL AND deleted_at IS NULL;
+
+-- Migrasi kepemilikan: baris lama diisi ke pemilik, `DEFAULT` pemilik dipasang
+-- (agar kode lama yang menulis tanpa `owner` tetap diatribusikan ke pemilik), lalu
+-- `NOT NULL` ditegakkan. `npm run db:init` mengisi GUC sesi `app.owner_id` dengan
+-- elemen pertama `ALLOWED_USER_IDS` (lihat src/db/init.ts); nilai tak pernah masuk
+-- ke sini sehingga tak ada SQL yang dirakit di kode. Idempoten: aman diulang.
+DO $$
+DECLARE
+  owner_id BIGINT := NULLIF(current_setting('app.owner_id', true), '')::BIGINT;
+BEGIN
+  IF owner_id IS NULL THEN
+    RAISE NOTICE 'app.owner_id kosong: owner dibiarkan nullable (jalankan lewat npm run db:init)';
+    RETURN;
+  END IF;
+
+  UPDATE transactions SET owner = owner_id WHERE owner IS NULL;
+  UPDATE budgets      SET owner = owner_id WHERE owner IS NULL;
+  EXECUTE format('ALTER TABLE transactions ALTER COLUMN owner SET DEFAULT %s', owner_id);
+  EXECUTE format('ALTER TABLE budgets      ALTER COLUMN owner SET DEFAULT %s', owner_id);
+  ALTER TABLE transactions ALTER COLUMN owner SET NOT NULL;
+  ALTER TABLE budgets      ALTER COLUMN owner SET NOT NULL;
+END $$;
 ```
+
+`owner` is added **before** the view is (re)defined, so on a fresh database the view can select it; `CREATE OR REPLACE VIEW` may only add columns at the end, so `owner` stays the last one. The row-level `owner` value (`DEFAULT`, backfill, `NOT NULL`) is applied by `db:init` (section 9), because it needs the Telegram id from the environment.
 
 ---
 
 ## 6. Query Catalog
 
 Parameters use Postgres placeholders (`$1`, `$2`). Time parameters are **UTC instants** computed by the application from WIB boundaries.
+
+Every query touches one Pengguna's book. The data-access layer binds the `owner` when a repository is created (ADR-0007), so each read and write gains an `owner` predicate (or its partition / conflict-target equivalent). The queries below show the catalog without that bound predicate, **except** the budget upsert, whose conflict target is the schema itself: `(owner, effective_from)`.
 
 > **WIB to UTC example.** The WIB day 2026-11-03 is the range `[2026-11-02T17:00:00Z, 2026-11-03T17:00:00Z)`. Indonesia has no daylight saving time, so the offset is always +7 hours.
 
@@ -330,9 +374,9 @@ The same query serves today, this week, this month, a specific date, and a speci
 **Set or change today's budget**
 
 ```sql
-INSERT INTO budgets (amount, effective_from)
-VALUES ($1, $2)                       -- $2 = today's date in WIB, as a YYYY-MM-DD string
-ON CONFLICT (effective_from) DO UPDATE SET amount = EXCLUDED.amount;
+INSERT INTO budgets (amount, effective_from, owner)
+VALUES ($1, $2, $3)                   -- $2 = today's date in WIB (YYYY-MM-DD), $3 = owner
+ON CONFLICT (owner, effective_from) DO UPDATE SET amount = EXCLUDED.amount;
 ```
 
 **Budget in effect for a given WIB day**
@@ -491,11 +535,16 @@ Rules:
 - Existing columns are not dropped or retyped without a deliberate, reviewed migration.
 - Export CSV columns are added at the end so existing spreadsheets keep working.
 
+**Applied change — ownership (`owner`, ADR-0007).** `schema.sql` adds the column idempotently and swaps the budget uniqueness to `(owner, effective_from)`. The value-dependent steps — backfilling legacy rows to the first `ALLOWED_USER_IDS` id, then `SET DEFAULT` and `SET NOT NULL` — run in a `DO` block that reads the session setting `app.owner_id`, which `db:init` sets on the same connection. The Telegram id therefore never enters the SQL text. If `app.owner_id` is unset (schema applied outside `db:init`), the block raises a notice and leaves `owner` nullable.
+
+The `DEFAULT` keeps plain inserts rollback-safe: old code that `INSERT`s without `owner` is still attributed to the owner. It does **not** rescue an upsert: the previous release's `/budget` uses `ON CONFLICT (effective_from)`, and that constraint is gone, so `/budget` (only) fails if the code is rolled back after this migration. `owner` is added **before** the `CREATE OR REPLACE VIEW`, since a view may only gain new columns at the end.
+
 ---
 
 ## 10. Applying the Schema
 
 - `npm run db:init` reads `schema.sql` and executes it against `DATABASE_URL`. The file is sent as a single multi-statement query with no parameters.
+- Before running it, `db:init` sets the session setting `app.owner_id` to the first `ALLOWED_USER_IDS` entry on the same connection, so the `DO` block applies the `owner` migration. A plain `psql -f schema.sql` skips that block (and leaves `owner` nullable) unless `app.owner_id` is set first.
 - Run it once after creating the database, and again after any appended change.
 - Local development: database `keuangan_dev` on the Laragon PostgreSQL.
 - Production: the Heroku Postgres add-on provisions `DATABASE_URL` automatically. The connection requires SSL (`ssl: { rejectUnauthorized: false }` in `pg` options), as noted in the project notes.
@@ -521,3 +570,4 @@ Rules:
 | NFR-013 | `BEGIN ... COMMIT` around multi-statement writes (6.1) |
 | NFR-040, NFR-042 | `TIMESTAMPTZ` in UTC, application-computed ranges |
 | NFR-051, NFR-052, NFR-056 | section 7, section 8, `schema.sql` (section 5) |
+| FR-001, FR-002, NFR-001, NFR-006 (ADR-0007) | `owner` on `transactions` and `budgets`, `ledger_entries.owner`, per-owner budget uniqueness `(owner, effective_from)` |

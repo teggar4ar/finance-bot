@@ -38,9 +38,21 @@ CREATE TABLE IF NOT EXISTS budgets (
   CONSTRAINT uq_budget_effective_from UNIQUE (effective_from)
 );
 
+-- === Kepemilikan per Pengguna (ADR-0007) ===
+-- `owner` = Telegram user id pemilik baris. Kolom ditambah idempoten di sini;
+-- baris lama di-backfill, `DEFAULT` dipasang, dan `NOT NULL` ditegakkan oleh
+-- `npm run db:init` karena butuh id dari `ALLOWED_USER_IDS` (tak tersedia di sini).
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS owner BIGINT;
+ALTER TABLE budgets      ADD COLUMN IF NOT EXISTS owner BIGINT;
+
+-- Unik Budget pindah dari global-per-tanggal ke per-Pengguna.
+ALTER TABLE budgets DROP CONSTRAINT IF EXISTS uq_budget_effective_from;
+ALTER TABLE budgets DROP CONSTRAINT IF EXISTS uq_budget_owner_effective_from;
+ALTER TABLE budgets ADD CONSTRAINT uq_budget_owner_effective_from UNIQUE (owner, effective_from);
+
 -- Active transactions expanded into one row per affected account.
 -- A transfer yields two rows: leg 1 = money out of the source,
--- leg 2 = money into the destination.
+-- leg 2 = money into the destination. `owner` mengalir dari transaksi induk.
 CREATE OR REPLACE VIEW ledger_entries AS
 SELECT
   id,
@@ -50,7 +62,8 @@ SELECT
   description,
   CASE WHEN type IN ('opening', 'income') THEN amount ELSE CAST(0 AS BIGINT) END AS money_in,
   CASE WHEN type IN ('expense', 'transfer') THEN amount ELSE CAST(0 AS BIGINT) END AS money_out,
-  1 AS leg
+  1 AS leg,
+  owner
 FROM transactions
 WHERE undone_at IS NULL AND deleted_at IS NULL
 UNION ALL
@@ -62,6 +75,29 @@ SELECT
   description,
   amount AS money_in,
   CAST(0 AS BIGINT) AS money_out,
-  2 AS leg
+  2 AS leg,
+  owner
 FROM transactions
 WHERE type = 'transfer' AND undone_at IS NULL AND deleted_at IS NULL;
+
+-- Migrasi kepemilikan: baris lama diisi ke pemilik, `DEFAULT` pemilik dipasang
+-- (agar kode lama yang menulis tanpa `owner` tetap diatribusikan ke pemilik), lalu
+-- `NOT NULL` ditegakkan. `npm run db:init` mengisi GUC sesi `app.owner_id` dengan
+-- elemen pertama `ALLOWED_USER_IDS` (lihat src/db/init.ts); nilai tak pernah masuk
+-- ke sini sehingga tak ada SQL yang dirakit di kode. Idempoten: aman diulang.
+DO $$
+DECLARE
+  owner_id BIGINT := NULLIF(current_setting('app.owner_id', true), '')::BIGINT;
+BEGIN
+  IF owner_id IS NULL THEN
+    RAISE NOTICE 'app.owner_id kosong: owner dibiarkan nullable (jalankan lewat npm run db:init)';
+    RETURN;
+  END IF;
+
+  UPDATE transactions SET owner = owner_id WHERE owner IS NULL;
+  UPDATE budgets      SET owner = owner_id WHERE owner IS NULL;
+  EXECUTE format('ALTER TABLE transactions ALTER COLUMN owner SET DEFAULT %s', owner_id);
+  EXECUTE format('ALTER TABLE budgets      ALTER COLUMN owner SET DEFAULT %s', owner_id);
+  ALTER TABLE transactions ALTER COLUMN owner SET NOT NULL;
+  ALTER TABLE budgets      ALTER COLUMN owner SET NOT NULL;
+END $$;

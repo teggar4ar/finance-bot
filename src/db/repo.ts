@@ -222,7 +222,7 @@ export function createRepo(pool: Pool): Repo {
       await pool.query(
         `INSERT INTO budgets (amount, effective_from)
          VALUES ($1, $2)
-         ON CONFLICT (effective_from) DO UPDATE SET amount = EXCLUDED.amount`,
+         ON CONFLICT (owner, effective_from) DO UPDATE SET amount = EXCLUDED.amount`,
         [amount, wibDate],
       );
     },

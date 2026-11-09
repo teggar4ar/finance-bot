@@ -12,10 +12,24 @@ loadDotEnv();
 
 const url = process.env.TEST_DATABASE_URL?.trim();
 const suite = url ? describe : describe.skip;
+/** Pemilik tetap untuk seluruh suite, meniru `db:init` (ADR-0007). */
+const OWNER = 1;
 
 suite('repo Postgres (integrasi, NFR-081/082)', () => {
   let pool: Pool;
   let repo: Repo;
+  let schemaSql: string;
+
+  /** Terapkan schema + migrasi kepemilikan persis seperti `db:init`: GUC pada sesi yang sama. */
+  async function applySchema(): Promise<void> {
+    const client = await pool.connect();
+    try {
+      await client.query("SELECT set_config('app.owner_id', $1, false)", [String(OWNER)]);
+      await client.query(schemaSql);
+    } finally {
+      client.release();
+    }
+  }
 
   beforeAll(async () => {
     pool = createPool(url!);
@@ -25,7 +39,8 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
     if (!name.endsWith('_test')) {
       throw new Error(`TEST_DATABASE_URL harus menunjuk database *_test, bukan ${name}`);
     }
-    await pool.query(await readFile(path.join(process.cwd(), 'schema.sql'), 'utf8'));
+    schemaSql = await readFile(path.join(process.cwd(), 'schema.sql'), 'utf8');
+    await applySchema();
     repo = createRepo(pool);
   });
 
@@ -40,6 +55,40 @@ suite('repo Postgres (integrasi, NFR-081/082)', () => {
 
   afterAll(async () => {
     await pool.end();
+  });
+
+  it('migrasi kepemilikan mengisi baris lama, memasang DEFAULT, dan menegakkan NOT NULL (ADR-0007)', async () => {
+    // Kembalikan ke bentuk pasca-schema.sql (nullable, tanpa DEFAULT) untuk menguji migrasi.
+    await pool.query('ALTER TABLE transactions ALTER COLUMN owner DROP NOT NULL, ALTER COLUMN owner DROP DEFAULT');
+    await pool.query('ALTER TABLE budgets ALTER COLUMN owner DROP NOT NULL, ALTER COLUMN owner DROP DEFAULT');
+
+    const legacy = await pool.query<{ id: string }>(
+      "INSERT INTO transactions (type, account, amount, description) VALUES ('expense', 'tunai', 1000, 'lama') RETURNING id",
+    );
+    await pool.query("INSERT INTO budgets (amount, effective_from) VALUES (50000, '2026-01-01')");
+
+    await applySchema();
+
+    const { rows } = await pool.query<{ owner: string }>(
+      'SELECT owner::text AS owner FROM transactions WHERE id = $1',
+      [legacy.rows[0]!.id],
+    );
+    expect(rows[0]?.owner).toBe(String(OWNER));
+    const budget = await pool.query<{ owner: string }>('SELECT owner::text AS owner FROM budgets');
+    expect(budget.rows[0]?.owner).toBe(String(OWNER));
+
+    // DEFAULT menjaga rollback: tulis tanpa `owner` tetap diatribusikan ke pemilik.
+    const plain = await pool.query<{ owner: string }>(
+      "INSERT INTO transactions (type, account, amount, description) VALUES ('income', 'bank', 2000, 'tanpa owner') RETURNING owner",
+    );
+    expect(plain.rows[0]?.owner).toBe(String(OWNER));
+
+    // Setelah migrasi, `owner` wajib terisi.
+    await expect(
+      pool.query(
+        "INSERT INTO transactions (type, account, amount, description, owner) VALUES ('income', 'bank', 3000, 'null', NULL)",
+      ),
+    ).rejects.toThrow();
   });
 
   it('akun tanpa transaksi bersaldo 0', async () => {
