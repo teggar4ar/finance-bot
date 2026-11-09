@@ -5,7 +5,7 @@
 | **Version** | 0.5 (draft) |
 | **Date** | 2026-11-03 |
 | **Status** | For review |
-| **Owner** | Project author (single user) |
+| **Owner** | Project author |
 
 ---
 
@@ -15,7 +15,7 @@
 A simple personal finance tracker used through a Telegram chatbot. The user records income and expenses with short slash commands, and the system keeps track of balances in two accounts (cash and bank), supports undo/redo, shows summaries, warns when a daily budget is exceeded, and exports data as a ledger-style CSV.
 
 ### 1.2 Scope
-- **Single user.** Only one authorized Telegram user ID can use the bot.
+- **Multiple users, one bot.** One Telegram bot serves an allowlist of Telegram user IDs (`ALLOWED_USER_IDS`); each user ID keeps its own private book — balances, history, budget, and export stay separate (ADR-0007).
 - **Single currency.** Indonesian Rupiah (IDR), stored as whole numbers.
 - **Command-based input.** No LLM or natural-language understanding. All input is parsed deterministically.
 - **Storage.** PostgreSQL. Production starts on Heroku (Heroku Postgres); development runs on a local PostgreSQL (Laragon).
@@ -24,7 +24,8 @@ A simple personal finance tracker used through a Telegram chatbot. The user reco
 - Automatic categorization and category summaries (deferred; the schema should allow adding it later).
 - LLM or AI features, receipt photo/OCR.
 - Per-category budgets, monthly budgets, recurring transactions.
-- Multiple users, multiple currencies.
+- Multiple currencies.
+- Shared books and admin tooling: each user's book is private, with no cross-user view, no admin table, and no user-management command (ADR-0007).
 - Backdated transactions (every transaction is timestamped when it is recorded).
 - Scheduled/automatic reports.
 - Google Sheets integration (replaced by PostgreSQL + CSV export).
@@ -46,9 +47,9 @@ Priority: **M** = Must have, **S** = Should have.
 
 | ID | Requirement | Priority |
 |---|---|---|
-| FR-001 | The bot shall only process messages from the Telegram user ID configured in `ALLOWED_USER_ID`. | M |
-| FR-002 | Messages from any other user shall be ignored without any response and without writing any data. | M |
-| FR-003 | The bot shall only respond in private chats. Messages from groups or channels shall be ignored, even when they come from the allowed user. | M |
+| FR-001 | The bot shall only process messages from a Telegram user ID in the `ALLOWED_USER_IDS` allowlist. | M |
+| FR-002 | Messages from a user not in the allowlist shall be ignored without any response and without writing any data. | M |
+| FR-003 | The bot shall only respond in private chats. Messages from groups or channels shall be ignored, even when they come from an allowed user. | M |
 
 ### 2.2 Accounts and Opening Balances
 
@@ -195,12 +196,12 @@ Priority: **M** = Must have, **S** = Should have.
 
 | ID | Requirement |
 |---|---|
-| NFR-001 | Access is restricted to one Telegram user ID, enforced as the first middleware, before any command handling or database access. |
-| NFR-002 | Secrets (`BOT_TOKEN`, `DATABASE_URL`, `ALLOWED_USER_ID`) shall be supplied only through environment variables. They shall never be committed to the repository or written to logs. |
+| NFR-001 | Access is restricted to the allowlist of Telegram user IDs (`ALLOWED_USER_IDS`), enforced as the first middleware, before any command handling or database access. |
+| NFR-002 | Secrets (`BOT_TOKEN`, `DATABASE_URL`, `ALLOWED_USER_IDS`) shall be supplied only through environment variables. They shall never be committed to the repository or written to logs. |
 | NFR-003 | `.env` shall be listed in `.gitignore` before the first commit. A `.env.example` without real values shall be provided. |
 | NFR-004 | If a token is ever exposed, it shall be regenerated via BotFather. |
 | NFR-005 | Database queries shall use parameterized statements. No SQL is built by string concatenation with user input. |
-| NFR-006 | The application shall validate its configuration at startup and exit with a clear error if `BOT_TOKEN`, `ALLOWED_USER_ID`, or `DATABASE_URL` is missing; `ALLOWED_USER_ID` must be a positive integer. |
+| NFR-006 | The application shall validate its configuration at startup and exit with a clear error if `BOT_TOKEN`, `ALLOWED_USER_IDS`, or `DATABASE_URL` is missing; `ALLOWED_USER_IDS` must be a non-empty, comma-separated list of unique positive integers. |
 
 ### 3.2 Data Integrity
 
@@ -303,7 +304,7 @@ Priority: **M** = Must have, **S** = Should have.
 | Variable | Purpose |
 |---|---|
 | `BOT_TOKEN` | Telegram bot token from BotFather |
-| `ALLOWED_USER_ID` | The only Telegram user ID allowed to use the bot |
+| `ALLOWED_USER_IDS` | Telegram user IDs allowed to use the bot: comma-separated, unique positive integers. The first is the owner of data recorded before multi-user (ADR-0007) |
 | `DATABASE_URL` | PostgreSQL connection string |
 | `TEST_DATABASE_URL` | PostgreSQL connection string for integration tests (optional; tests are skipped when absent) |
 
@@ -344,7 +345,7 @@ Storage, constraints, and the query catalog are maintained in [db-schema.md](./d
 | D6 | An opening balance is the ledger's row zero and may be declared at any time (ADR-0003). Negative opening balances are not supported in v1. |
 | D7 | Only writes that create a transaction discard the redo history. `/edit`, `/hapus`, and `/budget` do not (see FR-053). |
 | D8 | Update mode is long polling only; there is no webhook server (see NFR-053). |
-| D9 | Duplicate delivery of the same Telegram update is not deduplicated in v1; the risk is accepted because the failure window is tiny for a single-user bot. |
+| D9 | Duplicate delivery of the same Telegram update is not deduplicated in v1; the risk is accepted because the failure window is tiny for a small personal bot. |
 | D10 | The bot responds only in private chats; group and channel messages are ignored (see FR-003). |
 | D11 | The process fails fast on missing or invalid configuration (see NFR-006). |
 | D12 | Integration tests use a separate `keuangan_test` database, gated by `TEST_DATABASE_URL` (see NFR-082). |

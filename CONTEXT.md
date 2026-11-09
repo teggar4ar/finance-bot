@@ -1,8 +1,12 @@
 # Personal Finance Bot
 
-Bot Telegram satu pengguna untuk mencatat uang di dua tempat dan melaporkannya. File ini hanya glosarium: kata yang dipakai proyek ini, dan kata yang ditolak.
+Bot Telegram untuk mencatat uang di dua tempat dan melaporkannya, satu buku privat per Pengguna. File ini hanya glosarium: kata yang dipakai proyek ini, dan kata yang ditolak.
 
 ## Language
+
+**Pengguna**:
+Satu akun Telegram yang diizinkan memakai bot. Punya buku privatnya sendiri: saldo, riwayat, budget, dan export terpisah. Bot hanya melayani chat pribadi.
+_Avoid_: user, pemakai, member
 
 **Transaksi**:
 Satu peristiwa keuangan yang dicatat, disimpan sebagai satu baris. Salah satu dari: `opening`, `expense`, `income`, `transfer`.

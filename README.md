@@ -1,6 +1,6 @@
 # finance-bot
 
-Bot Telegram **satu pengguna** untuk mencatat uang di dua akun — **tunai** dan **bank** — lewat perintah slash yang deterministik. Ringan, tanpa LLM, tanpa UI selain teks.
+Bot Telegram **multi-Pengguna** untuk mencatat uang di dua akun — **tunai** dan **bank** — lewat perintah slash yang deterministik. Ringan, tanpa LLM, tanpa UI selain teks.
 
 ![Node.js](https://img.shields.io/badge/node-26.x-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
@@ -10,11 +10,12 @@ Bot Telegram **satu pengguna** untuk mencatat uang di dua akun — **tunai** dan
 Catat pengeluaran, pemasukan, dan transfer dengan satu baris singkat (mis. `/k makan siang 25rb`). Bot menyimpan transaksi di PostgreSQL, menghitung saldo dari transaksi (bukan angka tersimpan), mendukung undo/redo, ringkasan harian/mingguan/bulanan, peringatan **budget harian**, dan ekspor CSV bergaya ledger. Antarmuka dan nama perintah berbahasa Indonesia; kode dan identifier database berbahasa Inggris.
 
 > [!NOTE]
-> Proyek ini dirancang untuk **satu pengguna**. Hanya satu `ALLOWED_USER_ID` yang dilayani, dan bot hanya merespons di **chat pribadi**. Lingkungan dev dan produksi memakai **bot/token terpisah**.
+> Bot melayani beberapa **Pengguna** lewat allowlist `ALLOWED_USER_IDS`: tiap Telegram user ID punya **buku privatnya sendiri** — saldo, riwayat, budget, dan export terpisah (lihat [ADR-0007](./docs/adr/0007-one-private-book-per-telegram-user.md)). Bot hanya merespons di **chat pribadi**. Lingkungan dev dan produksi memakai **bot/token terpisah**.
 
 ## Fitur
 
 - **Dua akun** (`tunai`, `bank`) dengan saldo yang selalu diturunkan dari transaksi aktif.
+- **Buku privat per Pengguna** — tiap Telegram user ID di allowlist punya buku sendiri (ADR-0007).
 - **Catat cepat** — pengeluaran, pemasukan, dan transfer antar akun; tunai jadi default sehingga entri umum tak perlu flag.
 - **Parser nominal Indonesia** — `25rb`, `25k`, `1,5jt`, `1.5jt`, `25.000`, `25000`; nominal juga boleh berdesimal hingga 2 digit (sen), mis. `25.000,50` atau `1.321.765,03` (titik pemisah ribuan, koma pemisah desimal).
 - **Saldo awal** sebagai *row zero* ledger (boleh ditetapkan kapan saja; selalu dianggap sebelum transaksi lain).
@@ -43,7 +44,7 @@ Catat pengeluaran, pemasukan, dan transfer dengan satu baris singkat (mis. `/k m
 - **Node.js 26.x** dan npm.
 - **PostgreSQL** — lokal (mis. Laragon) untuk dev, atau Heroku Postgres untuk produksi.
 - **Token bot** dari [BotFather](https://t.me/BotFather).
-- **Telegram user ID** Anda (hanya ID ini yang dilayani).
+- **Telegram user ID** Anda (dan ID lain yang Anda izinkan lewat `ALLOWED_USER_IDS`).
 
 ## Menjalankan secara lokal
 
@@ -67,19 +68,19 @@ npm run dev         # tsx watch — bot polling
 ```
 
 > [!WARNING]
-> Jangan pernah commit file `.env`. Rahasia (`BOT_TOKEN`, `DATABASE_URL`, `ALLOWED_USER_ID`) hanya disediakan lewat environment variable dan tidak boleh masuk log atau repositori.
+> Jangan pernah commit file `.env`. Rahasia (`BOT_TOKEN`, `DATABASE_URL`, `ALLOWED_USER_IDS`) hanya disediakan lewat environment variable dan tidak boleh masuk log atau repositori.
 
 ## Konfigurasi
 
 | Variabel | Wajib | Fungsi |
 |---|---|---|
 | `BOT_TOKEN` | ya | Token bot Telegram dari BotFather |
-| `ALLOWED_USER_ID` | ya | Satu-satunya Telegram user ID yang diizinkan (integer positif) |
+| `ALLOWED_USER_IDS` | ya | Daftar Telegram user ID yang diizinkan, dipisah koma (integer positif, unik). Elemen pertama = pemilik data lama |
 | `DATABASE_URL` | ya | String koneksi PostgreSQL |
 | `TEST_DATABASE_URL` | tidak | DB untuk tes integrasi; tes integrasi dilewati bila kosong |
 | `DB_POOL_SIZE` | tidak | Ukuran connection pool `pg` (default `3`) |
 
-Aplikasi **gagal cepat** saat start bila `BOT_TOKEN`, `ALLOWED_USER_ID`, atau `DATABASE_URL` hilang/invalid.
+Aplikasi **gagal cepat** saat start bila `BOT_TOKEN`, `ALLOWED_USER_IDS`, atau `DATABASE_URL` hilang/invalid.
 
 ## Perintah
 
@@ -124,7 +125,7 @@ src/
    ├─ repo.ts      # createRepo(pool) — satu-satunya tempat SQL
    ├─ pool.ts      # connection pool pg
    └─ init.ts      # penerap schema.sql
-test/              # 275 tes Vitest (17 file) + fake-repo.ts
+test/              # 276 tes Vitest (18 file) + fake-repo.ts
 ```
 
 Arsitektur ringkas: semua handler adalah fungsi murni di balik seam `execute(command, deps) → Reply`, sehingga mudah diuji tanpa database. Kosakata balasan statis (`HELP`, `HINT`, `USAGE_*`, label/emoji jenis transaksi) dipusatkan di `src/text.ts`, sedangkan primitif format HTML di `src/reply.ts`. **Seluruh SQL tinggal di `src/db/repo.ts`**; sisanya memanggil fungsi seperti `getBalances()` atau `addExpenseOrIncome()`. Alur waktu memakai UTC di DB dan batas hari/minggu/bulan WIB dihitung di aplikasi (SQL tetap portabel).
@@ -135,7 +136,7 @@ Arsitektur ringkas: semua handler adalah fungsi murni di balik seam `execute(com
 npm test
 ```
 
-**275 tes di 17 file** (Vitest). Unit test mencakup parser nominal, parser argumen, aturan budget, logika saldo, escaping HTML, dan adapter `parse_mode`. Tes integrasi menembak PostgreSQL sungguhan pada database `_test` dan **dilewati bila `TEST_DATABASE_URL` kosong**.
+**276 tes di 18 file** (Vitest). Unit test mencakup parser nominal, parser argumen, aturan budget, logika saldo, escaping HTML, dan adapter `parse_mode`. Tes integrasi menembak PostgreSQL sungguhan pada database `_test` dan **dilewati bila `TEST_DATABASE_URL` kosong**.
 
 > [!TIP]
 > `tsconfig.json` hanya meng-`include` `src`, jadi tes tidak ikut di-typecheck oleh `tsc` biasa. Tes integrasi menolak berjalan bila nama database tidak berakhiran `_test`.
@@ -153,4 +154,4 @@ Produksi berjalan sebagai **worker Heroku** (`Procfile`: `worker: node dist/inde
 - [`CONTEXT.md`](./CONTEXT.md) — glosarium istilah domain.
 - [`fr-nfr.md`](./fr-nfr.md) — functional & non-functional requirements, keputusan, asumsi.
 - [`db-schema.md`](./db-schema.md) — skema, view `ledger_entries`, katalog query, kebijakan perubahan schema.
-- [`docs/adr`](./docs/adr) — Architecture Decision Records (saldo derived, transfer satu baris, opening = row zero, alias satu huruf, uang integer sen, balasan ber-HTML).
+- [`docs/adr`](./docs/adr) — Architecture Decision Records (saldo derived, transfer satu baris, opening = row zero, alias satu huruf, uang integer sen, balasan ber-HTML, satu buku privat per Pengguna).
