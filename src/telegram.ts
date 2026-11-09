@@ -4,28 +4,33 @@ import type { Deps } from './execute';
 import { execute } from './execute';
 import { describeError, log } from './log';
 
-/** Hanya chat pribadi dari satu pengguna (FR-001, FR-003, D10). */
+/** Hanya chat pribadi dari Pengguna terdaftar (FR-001–FR-003, D10). */
 export function isAllowedMessage(
   chatType: string | undefined,
   fromId: number | undefined,
-  allowedUserId: number,
+  allowedUserIds: readonly number[],
 ): boolean {
-  return chatType === 'private' && fromId === allowedUserId;
+  return chatType === 'private' && fromId !== undefined && allowedUserIds.includes(fromId);
 }
 
-/** Adapter Telegram: pesan → command → execute → balasan. Tanpa logika uang. */
-export function createBot(token: string, allowedUserId: number, deps: Deps): Bot {
+/**
+ * Adapter Telegram: pesan → command → execute → balasan. Tanpa logika uang.
+ * `makeDeps` dipanggil per pesan dengan id pengirim, mengikat repo ke bukunya (ADR-0007).
+ */
+export function createBot(token: string, allowedUserIds: readonly number[], makeDeps: (owner: number) => Deps): Bot {
   const bot = new Bot(token);
 
   bot.use(async (ctx, next) => {
-    if (!isAllowedMessage(ctx.chat?.type, ctx.from?.id, allowedUserId)) return;
+    if (!isAllowedMessage(ctx.chat?.type, ctx.from?.id, allowedUserIds)) return;
     await next();
   });
 
   bot.on('message', async (ctx) => {
+    const user = ctx.from!.id;
+    const deps = makeDeps(user);
     const command = parseCommand(ctx.message.text ?? '');
     const cmd = command?.name ?? 'none';
-    log('info', 'command', { cmd });
+    log('info', 'command', { user, cmd });
 
     try {
       const reply = await execute(command, deps);
@@ -36,7 +41,7 @@ export function createBot(token: string, allowedUserId: number, deps: Deps): Bot
         await ctx.replyWithDocument(file, { caption: reply.caption, parse_mode: 'HTML' });
       }
     } catch (error) {
-      log('error', 'command_failed', { cmd, error: describeError(error, token) });
+      log('error', 'command_failed', { user, cmd, error: describeError(error, token) });
       await ctx.reply('⚠️ <b>Terjadi kesalahan saat memproses command.</b>\n\nCoba lagi.', { parse_mode: 'HTML' });
     }
   });

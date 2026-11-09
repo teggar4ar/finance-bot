@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createPool } from './pool';
 import { loadDotEnv } from '../env';
+import { parseAllowedUserIds } from '../config';
 import { describeError, log } from '../log';
 
 /** `npm run db:init`: jalankan schema.sql (idempoten) lalu migrasi kepemilikan. */
@@ -16,11 +17,11 @@ async function main(): Promise<void> {
   }
 
   // Elemen pertama `ALLOWED_USER_IDS` = pemilik data lama (ADR-0007).
-  const ownerId = Number(process.env.ALLOWED_USER_IDS?.split(',')[0]?.trim());
-  if (!Number.isSafeInteger(ownerId) || ownerId <= 0) {
-    log('error', 'config_invalid', {
-      error: 'env ALLOWED_USER_IDS harus memuat setidaknya satu Telegram user id positif',
-    });
+  let ownerId: number;
+  try {
+    ownerId = parseAllowedUserIds(process.env.ALLOWED_USER_IDS)[0] as number;
+  } catch (error) {
+    log('error', 'config_invalid', { error: describeError(error) });
     process.exitCode = 1;
     return;
   }

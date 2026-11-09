@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Transformer } from 'grammy';
 import type { Deps } from '../src/execute';
 import { createBot } from '../src/telegram';
@@ -11,21 +11,21 @@ interface Call {
 
 const deps: Deps = { now: () => new Date('2026-11-03T01:00:00Z'), repo: fakeRepo() };
 
-/** Pesan pribadi dari pengguna yang diizinkan (FR-001, FR-003). */
-const update = (text: string) => ({
+/** Pesan pribadi dari satu Telegram user (FR-001, FR-003). */
+const update = (text: string, fromId = 42) => ({
   update_id: 1,
   message: {
     message_id: 1,
     date: 0,
-    chat: { id: 42, type: 'private', first_name: 'x' },
-    from: { id: 42, is_bot: false, first_name: 'x' },
+    chat: { id: fromId, type: 'private', first_name: 'x' },
+    from: { id: fromId, is_bot: false, first_name: 'x' },
     text,
   },
 });
 
 /** Bot siap-update + panggilan API ditangkap ke array, bukan ke jaringan. */
-function readyBot(): { bot: ReturnType<typeof createBot>; calls: Call[] } {
-  const bot = createBot('123:abc', 42, deps);
+function readyBot(makeDeps: (owner: number) => Deps = () => deps): { bot: ReturnType<typeof createBot>; calls: Call[] } {
+  const bot = createBot('123:abc', [42, 99], makeDeps);
   bot.botInfo = { id: 1, is_bot: true, first_name: 'Test', username: 'test_bot' } as never;
 
   const calls: Call[] = [];
@@ -39,6 +39,10 @@ function readyBot(): { bot: ReturnType<typeof createBot>; calls: Call[] } {
 }
 
 describe('adapter Telegram', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('mengirim balasan teks dengan parse_mode HTML (isi ber-tag)', async () => {
     const { bot, calls } = readyBot();
 
@@ -58,5 +62,75 @@ describe('adapter Telegram', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.method).toBe('sendDocument');
     expect(calls[0]?.payload.parse_mode).toBe('HTML');
+  });
+
+  it('membangun deps per Pengguna dari ctx.from.id', async () => {
+    const owners: number[] = [];
+    const { bot } = readyBot((owner) => {
+      owners.push(owner);
+      return deps;
+    });
+
+    await bot.handleUpdate(update('/saldo', 42) as never);
+    await bot.handleUpdate(update('/saldo', 99) as never);
+
+    expect(owners).toEqual([42, 99]);
+  });
+
+  it('tiap Pengguna hanya melihat saldo bukunya sendiri (FR-001, ADR-0007)', async () => {
+    // Saldo berbeda per owner: 42 -> Rp 42.000, 99 -> Rp 99.000.
+    const { bot, calls } = readyBot((owner) => ({
+      now: () => new Date('2026-11-03T01:00:00Z'),
+      repo: fakeRepo({ getBalances: async () => ({ tunai: owner * 100_000, bank: 0 }) }),
+    }));
+
+    await bot.handleUpdate(update('/saldo', 42) as never);
+    await bot.handleUpdate(update('/saldo', 99) as never);
+
+    const [mine, theirs] = calls.map((call) => String(call.payload.text));
+    expect(mine).toContain('42.000');
+    expect(mine).not.toContain('99.000');
+    expect(theirs).toContain('99.000');
+    expect(theirs).not.toContain('42.000');
+  });
+
+  it('mengabaikan pesan dari pengguna di luar allowlist tanpa balasan & tanpa akses data (FR-002)', async () => {
+    const owners: number[] = [];
+    const { bot, calls } = readyBot((owner) => {
+      owners.push(owner);
+      return deps;
+    });
+
+    await bot.handleUpdate(update('/saldo', 7) as never);
+
+    expect(calls).toHaveLength(0);
+    expect(owners).toEqual([]);
+  });
+
+  it('mencatat user= pada log command (bukan isi pesan)', async () => {
+    const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const { bot } = readyBot();
+
+    await bot.handleUpdate(update('/pengeluaran rahasia 10000', 42) as never);
+
+    const logged = write.mock.calls.flat().join('');
+    expect(logged).toContain('command');
+    expect(logged).toContain('user=42');
+    expect(logged).not.toContain('rahasia');
+  });
+
+  it('mencatat user= pada log command_failed', async () => {
+    const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const failing: Deps = {
+      now: () => new Date('2026-11-03T01:00:00Z'),
+      repo: fakeRepo({ getBalances: async () => { throw new Error('boom'); } }),
+    };
+    const { bot } = readyBot(() => failing);
+
+    await bot.handleUpdate(update('/saldo', 42) as never);
+
+    const logged = write.mock.calls.flat().join('');
+    expect(logged).toContain('command_failed');
+    expect(logged).toContain('user=42');
   });
 });

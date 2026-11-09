@@ -3,7 +3,6 @@ import { loadConfig } from './config';
 import { createPool } from './db/pool';
 import { createRepo } from './db/repo';
 import { loadDotEnv } from './env';
-import type { Deps } from './execute';
 import { describeError, log } from './log';
 import { createBot } from './telegram';
 
@@ -19,8 +18,10 @@ async function main(): Promise<void> {
   }
 
   const pool = createPool(config.databaseUrl);
-  const deps: Deps = { now: () => new Date(), repo: createRepo(pool, config.allowedUserId) };
-  const bot = createBot(config.botToken, config.allowedUserId, deps);
+  const bot = createBot(config.botToken, config.allowedUserIds, (owner) => ({
+    now: () => new Date(),
+    repo: createRepo(pool, owner),
+  }));
 
   let stopping = false;
   let running: Promise<void> | undefined;
