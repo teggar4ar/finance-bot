@@ -3,6 +3,7 @@ import { parseCommand } from './command';
 import type { Deps } from './execute';
 import { execute } from './execute';
 import { describeError, log } from './log';
+import { FAILED_REPLY } from './text';
 
 /** Hanya chat pribadi dari Pengguna terdaftar (FR-001–FR-003, D10). */
 export function isAllowedMessage(
@@ -34,20 +35,30 @@ export function createBot(token: string, allowedUserIds: readonly number[], make
 
     try {
       const reply = await execute(command, deps);
-      if (typeof reply === 'string') {
-        await ctx.reply(reply, { parse_mode: 'HTML' });
-      } else {
-        const file = new InputFile(Buffer.from(reply.content, 'utf8'), reply.filename);
-        await ctx.replyWithDocument(file, { caption: reply.caption, parse_mode: 'HTML' });
+      // Dipisah dari `execute` agar gagal kirim (DB sudah tertulis) tidak dilog sebagai command_failed.
+      try {
+        if (typeof reply === 'string') {
+          await ctx.reply(reply, { parse_mode: 'HTML' });
+        } else {
+          const file = new InputFile(Buffer.from(reply.content, 'utf8'), reply.filename);
+          await ctx.replyWithDocument(file, { caption: reply.caption, parse_mode: 'HTML' });
+        }
+      } catch (error) {
+        log('error', 'reply_failed', { user, cmd, error: describeError(error, token) });
+        // Teks statis tanpa data pengguna: aman dikirim meski balasan asli gagal di-parse Telegram.
+        await ctx.reply(FAILED_REPLY, { parse_mode: 'HTML' }).catch(() => {});
       }
     } catch (error) {
       log('error', 'command_failed', { user, cmd, error: describeError(error, token) });
-      await ctx.reply('⚠️ <b>Terjadi kesalahan saat memproses command.</b>\n\nCoba lagi.', { parse_mode: 'HTML' });
+      await ctx.reply(FAILED_REPLY, { parse_mode: 'HTML' });
     }
   });
 
   bot.catch((error) => {
-    log('error', 'update_failed', { error: describeError(error.error, token) });
+    const user = error.ctx.from?.id;
+    const fields: Record<string, string | number> = { error: describeError(error.error, token) };
+    if (user !== undefined) fields.user = user;
+    log('error', 'update_failed', fields);
   });
 
   return bot;

@@ -24,13 +24,17 @@ const update = (text: string, fromId = 42) => ({
 });
 
 /** Bot siap-update + panggilan API ditangkap ke array, bukan ke jaringan. */
-function readyBot(makeDeps: (owner: number) => Deps = () => deps): { bot: ReturnType<typeof createBot>; calls: Call[] } {
+function readyBot(
+  makeDeps: (owner: number) => Deps = () => deps,
+  failApi = false,
+): { bot: ReturnType<typeof createBot>; calls: Call[] } {
   const bot = createBot('123:abc', [42, 99], makeDeps);
   bot.botInfo = { id: 1, is_bot: true, first_name: 'Test', username: 'test_bot' } as never;
 
   const calls: Call[] = [];
   const capture: Transformer = (_prev, method, payload) => {
     calls.push({ method: String(method), payload: payload as Record<string, unknown> });
+    if (failApi) return Promise.reject(new Error('network down')) as never;
     return Promise.resolve({ ok: true, result: true }) as never;
   };
   bot.api.config.use(capture);
@@ -131,6 +135,39 @@ describe('adapter Telegram', () => {
 
     const logged = write.mock.calls.flat().join('');
     expect(logged).toContain('command_failed');
+    expect(logged).toContain('user=42');
+  });
+
+  it('gagal kirim balasan dilog reply_failed, bukan command_failed', async () => {
+    const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const { bot, calls } = readyBot(() => deps, true);
+
+    await bot.handleUpdate(update('/saldo', 42) as never);
+
+    const logged = write.mock.calls.flat().join('');
+    expect(logged).toContain('reply_failed');
+    expect(logged).toContain('user=42');
+    expect(logged).not.toContain('command_failed');
+    // Pengguna tetap diberi tahu: percobaan kirim kedua berisi pesan gagal, bukan balasan asli.
+    expect(calls).toHaveLength(2);
+    // DB sudah tertulis → balasan gagal tidak boleh menyuruh ulang tanpa cek riwayat.
+    expect(String(calls[1]?.payload.text)).toContain('/riwayat');
+    expect(String(calls[1]?.payload.text)).not.toContain('Coba lagi');
+  });
+
+  it('mencatat user= pada log update_failed', async () => {
+    const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const { bot } = readyBot(() => {
+      throw new Error('boom');
+    });
+
+    // Jalur nyata: handleUpdates menangkap BotError lalu memanggil bot.catch.
+    // `handleUpdates` privat di tipe grammY, tapi inilah yang dipanggil loop polling.
+    const runner = bot as unknown as { handleUpdates(updates: unknown[]): Promise<void> };
+    await runner.handleUpdates([update('/saldo', 42)]);
+
+    const logged = write.mock.calls.flat().join('');
+    expect(logged).toContain('update_failed');
     expect(logged).toContain('user=42');
   });
 });

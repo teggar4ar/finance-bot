@@ -41,6 +41,13 @@ export const HELP = [
 
 export const HINT = ['❓ <b>Command tidak dikenal.</b>', '', 'Ketik /help untuk daftar command.'].join('\n');
 
+/** Balasan saat command gagal atau balasannya gagal terkirim; jangan menyuruh ulang tanpa cek riwayat. */
+export const FAILED_REPLY = [
+  '⚠️ <b>Gagal memproses command.</b>',
+  '',
+  'Cek /riwayat dulu sebelum mengulang command.',
+].join('\n');
+
 /** NFR-061: penolakan Format/Contoh; tag pada teks `<…>` di-escape lewat `code`. */
 const usage = (format: string, example: string): string =>
   [`${bold('Format:')} ${code(format)}`, '', `${bold('Contoh:')} ${code(example)}`].join('\n');
