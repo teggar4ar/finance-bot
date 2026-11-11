@@ -16,5 +16,8 @@ export function log(level: Level, event: string, fields: Record<string, string |
 /** Pesan error tanpa token, supaya secret tidak pernah masuk log (NFR-002). */
 export function describeError(error: unknown, secret?: string): string {
   const message = error instanceof Error ? error.message : String(error);
-  return secret ? message.replaceAll(secret, '<redacted>') : message;
+  const text = secret ? message.replaceAll(secret, '<redacted>') : message;
+
+  const code = (error as { error?: { code?: unknown } } | null)?.error?.code;
+  return typeof code === 'string' ? `${text} (cause=${code})` : text;
 }
