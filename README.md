@@ -125,7 +125,7 @@ src/
    ├─ repo.ts      # createRepo(pool) — satu-satunya tempat SQL
    ├─ pool.ts      # connection pool pg
    └─ init.ts      # penerap schema.sql
-test/              # 276 tes Vitest (18 file) + fake-repo.ts
+test/              # 287 tes Vitest (18 file) + fake-repo.ts
 ```
 
 Arsitektur ringkas: semua handler adalah fungsi murni di balik seam `execute(command, deps) → Reply`, sehingga mudah diuji tanpa database. Kosakata balasan statis (`HELP`, `HINT`, `USAGE_*`, label/emoji jenis transaksi) dipusatkan di `src/text.ts`, sedangkan primitif format HTML di `src/reply.ts`. **Seluruh SQL tinggal di `src/db/repo.ts`**; sisanya memanggil fungsi seperti `getBalances()` atau `addExpenseOrIncome()`. Alur waktu memakai UTC di DB dan batas hari/minggu/bulan WIB dihitung di aplikasi (SQL tetap portabel).
@@ -136,7 +136,7 @@ Arsitektur ringkas: semua handler adalah fungsi murni di balik seam `execute(com
 npm test
 ```
 
-**276 tes di 18 file** (Vitest). Unit test mencakup parser nominal, parser argumen, aturan budget, logika saldo, escaping HTML, dan adapter `parse_mode`. Tes integrasi menembak PostgreSQL sungguhan pada database `_test` dan **dilewati bila `TEST_DATABASE_URL` kosong**.
+**287 tes di 18 file** (Vitest). Unit test mencakup parser nominal, parser argumen, aturan budget, logika saldo, escaping HTML, dan adapter `parse_mode`. Tes integrasi menembak PostgreSQL sungguhan pada database `_test` dan **dilewati bila `TEST_DATABASE_URL` kosong**.
 
 > [!TIP]
 > `tsconfig.json` hanya meng-`include` `src`, jadi tes tidak ikut di-typecheck oleh `tsc` biasa. Tes integrasi menolak berjalan bila nama database tidak berakhiran `_test`.
