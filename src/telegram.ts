@@ -1,4 +1,5 @@
-import { Bot, InputFile } from 'grammy';
+import { HttpError } from 'grammy';
+import { Api, Bot, InputFile } from 'grammy';
 import { parseCommand } from './command';
 import type { Deps } from './execute';
 import { execute } from './execute';
@@ -63,3 +64,22 @@ export function createBot(token: string, allowedUserIds: readonly number[], make
 
   return bot;
 }
+
+/**
+ * getMe dengan satu percobaan ulang untuk kegagalan jaringan transien (HttpError,
+ * mis. ECONNRESET saat handshake). GrammyError = Telegram menjawab (mis. token
+ * salah) → tidak di-retry. Tidak ada loop: Heroku restart sendiri bila tetap gagal.
+ */
+export async function getMeWithRetry(api: Api): Promise<unknown> {
+  try {
+    return await api.getMe();
+  } catch (error) {
+    if (!(error instanceof HttpError)) throw error;
+    log('warn', 'startup_retry', { error: describeError(error) });
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    return api.getMe();
+  }
+}
+
+// Satu percobaan ulang saja; Heroku restart otomatis bila tetap gagal.
+const RETRY_DELAY_MS = 1500;

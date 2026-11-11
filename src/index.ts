@@ -4,7 +4,7 @@ import { createPool } from './db/pool';
 import { createRepo } from './db/repo';
 import { loadDotEnv } from './env';
 import { describeError, log } from './log';
-import { createBot } from './telegram';
+import { createBot, getMeWithRetry } from './telegram';
 
 async function main(): Promise<void> {
   loadDotEnv();
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   }
 
   try {
-    await bot.api.getMe();
+    await getMeWithRetry(bot.api);
   } catch (error) {
     log('error', 'startup_failed', { error: describeError(error, config.botToken) });
     await pool.end();
