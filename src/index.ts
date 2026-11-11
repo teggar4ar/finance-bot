@@ -57,7 +57,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  await bot.api.getMe();
+  try {
+    await bot.api.getMe();
+  } catch (error) {
+    log('error', 'startup_failed', { error: describeError(error, config.botToken) });
+    await pool.end();
+    process.exit(1);
+  }
+
   log('info', 'startup', { mode: 'polling' });
   running = bot.start();
   await running;
