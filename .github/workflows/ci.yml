@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: keuangan_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/keuangan_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Typecheck test/
+        run: |
+          cat > tsconfig.tmp.json <<'EOF'
+          {
+            "extends": "./tsconfig.json",
+            "compilerOptions": { "rootDir": ".", "noEmit": true },
+            "include": ["src/**/*.ts", "test/**/*.ts"]
+          }
+          EOF
+          npx tsc -p tsconfig.tmp.json
+          rm tsconfig.tmp.json
+      - run: npm test
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Deploy ke Heroku
+        run: git push "https://heroku:${{ secrets.HEROKU_API_KEY }}@git.heroku.com/finbyte-v1.git" HEAD:master
