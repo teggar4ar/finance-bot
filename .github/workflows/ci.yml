@@ -55,3 +55,18 @@ jobs:
           fetch-depth: 0
       - name: Deploy ke Heroku
         run: git push "https://heroku:${{ secrets.HEROKU_API_KEY }}@git.heroku.com/finbyte-v1.git" HEAD:master
+      - name: Verifikasi worker up
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          for i in $(seq 1 18); do
+            state=$(curl -s -H "Authorization: Bearer $HEROKU_API_KEY" \
+              -H "Accept: application/vnd.heroku+json; version=3" \
+              https://api.heroku.com/apps/finbyte-v1/dynos \
+              | jq -r '.[] | select(.type=="worker") | .state')
+            if [ "$state" = "up" ]; then echo "worker up"; exit 0; fi
+            echo "attempt $i: worker state=$state"
+            sleep 10
+          done
+          echo "::error::worker tidak up setelah 3 menit"
+          exit 1
